@@ -36,6 +36,7 @@ TYPE = Choice(
         "bug": "Something that exists is broken or behaves incorrectly",
         "feature": "New or changed user-visible capability",
         "chore": "Maintenance, refactor, docs, tooling or dependency work",
+        "research": "Investigation whose result is a written recommendation, not a code change",
     },
 )
 PRIORITY = Choice(

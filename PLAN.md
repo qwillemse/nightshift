@@ -144,6 +144,12 @@ included in the text Jev sees.
    First eval on the 5 spike issues: clarity 5/5, type 5/5, risk 4/5 (the migration issue
    is now caught), size 3/5. Too few cases to conclude anything.
 1. Recipe app v1 (separate chat) and ~30 GitHub issues with expected labels.
+   **In progress (2026-10-21):** v1.0 is at github.com/qwillemse/recipe. Owner's 20 issues are
+   created there (titles only, unlabeled). 10 more are drafted in `evals/recipe_issues.json`
+   (not yet on GitHub), together with DRAFT expected labels for all 30 for the owner to
+   correct. First run against those draft labels: clarity 27/30, risk 28/30, type 27/30,
+   size 14/30 (most size misses are one step off, with low confidence). Provisional until
+   the labels are corrected. Added a `research` type for investigation issues.
 2. Triage-only eval: how well does Jev match the labels?
 3. One simple tier end to end: issue in, draft PR out.
 4. Run contract, limits, watchdog, pre-PR check.
