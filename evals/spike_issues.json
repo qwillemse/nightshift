@@ -1,0 +1,32 @@
+[
+  {
+    "id": "typo-readme",
+    "title": "Typo in README install section",
+    "body": "In the README under Installation it says 'pip instal -r requirements.txt'. Should be 'pip install'.",
+    "expected": {"size": "trivial", "clarity": "high", "risk": "low", "type": "chore"}
+  },
+  {
+    "id": "off-by-one-pagination",
+    "title": "Pagination shows duplicate item on page boundary",
+    "body": "On GET /recipes?page=2&per_page=10 the first item of page 2 is the same as the last item of page 1. Looks like an off-by-one in the OFFSET calculation in recipes/query.py. Expected: no overlap between pages. Repro: seed 25 recipes, request pages 1 and 2, compare ids.",
+    "expected": {"size": "small", "clarity": "high", "risk": "low", "type": "bug"}
+  },
+  {
+    "id": "shopping-list-export",
+    "title": "Let users export the shopping list as a printable page and as plain text",
+    "body": "After picking a recipe, users see the shopping list on screen. Add an Export button with two options: a print-friendly page (grouped by supermarket aisle) and a plain text copy to clipboard. Needs a new aisle field on ingredients with a migration, UI for the export menu, and tests for grouping. Items already in stock must be excluded.",
+    "expected": {"size": "medium", "clarity": "high", "risk": "high", "type": "feature"}
+  },
+  {
+    "id": "make-it-faster",
+    "title": "App feels slow",
+    "body": "It feels slow sometimes. Can we make it faster?",
+    "expected": {"size": "small", "clarity": "low", "risk": "low", "type": "bug"}
+  },
+  {
+    "id": "switch-auth",
+    "title": "Replace session cookies with JWT auth",
+    "body": "We should move from session cookies to JWT so we can support a mobile client later. Update login, logout and the auth middleware. Existing users must stay logged in. Rotate the signing secret in all environments.",
+    "expected": {"size": "large", "clarity": "medium", "risk": "high", "type": "feature"}
+  }
+]
