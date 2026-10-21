@@ -49,8 +49,12 @@ issue → triage → plan → [needs-human?] → implement → verify → pre-PR
 - **Pre-PR check (Jev):** does the diff address the issue? any red flags?
 - **Merge gates:** tests green, diff in scope, independent review agrees, Jev score above
   a threshold, not flagged risky. If any gate fails the PR stays open for the human.
-- **Safety:** bot token can write to `dev` only; branch protection on `main`; tag before
-  each batch for easy rollback.
+- **Safety:** branch protection on `main` (PR + passing CI, no force-push or deletion) and
+  `dev` (passing CI, no force-push or deletion); tag before each batch for easy rollback.
+  Caveat: while Nightshift runs with the owner's personal token, GitHub cannot stop it
+  opening and merging a PR into `main`, because the owner may bypass. Before auto-merge
+  runs overnight, give Nightshift its own identity (a machine user or GitHub App) and
+  require an approving review on `main`, so only the human can promote `dev` → `main`.
 - **Digest:** merged (with revert commands), open PRs and why, needs-human questions,
   failures/reverts, proposed issues and splits awaiting approval.
 
