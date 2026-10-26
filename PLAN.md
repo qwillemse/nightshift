@@ -144,6 +144,16 @@ score looked noisy (0.46 on a mild case, 0.13 on another) and is not yet validat
 and re-run once, cap the number of blocking questions, validate the invention check on
 deliberately inventive outputs, report tokens and cost.
 
+**Fixes applied and re-run (2026-10-26):** the model can now ask for files it was not shown
+and gets one more pass (so x8 saw the real prompt and no longer suggests adding a variety
+instruction that already exists); at most 4 questions and 2 blocking, with a stated default
+for each non-blocking question; tokens and estimated cost are reported (about $0.10 per
+issue, roughly 35k tokens in, mostly context). Jev's invention check was validated on
+4 issues x 3 variants: faithful improvements scored 0.26 to 0.46, ones with one small
+added requirement 0.60 to 0.92, ones with several invented requirements 0.93 to 0.98, so
+the 0.5 flag separated them on this small sample. Open question for the owner: may a
+non-blocking question proceed with its stated default if unanswered?
+
 When triage finds an issue unclear, a refine step runs before asking a human:
 
 1. An agent reads the relevant code, tests and docs and drafts what is missing: likely

@@ -135,3 +135,17 @@ def test_claude_cli_reports_login_errors():
 def test_claude_cli_non_json_output():
     with pytest.raises(LLMError, match="no JSON"):
         ClaudeCLI(binary="claude", run=fake_run("garbage", 1)).complete("s", "u", model="m")
+
+
+def test_estimate_cost_known_and_unknown_models():
+    from nightshift.llm import estimate_cost
+
+    usage = {"input_tokens": 1_000_000, "output_tokens": 100_000}
+    assert estimate_cost("claude-sonnet-5-5", usage) == pytest.approx(3.0)
+    assert estimate_cost("some-new-model", usage) is None
+
+
+def test_extra_files_are_shown_even_without_keyword_hits(tmp_path):
+    repo = make_repo(tmp_path, FILES)
+    ctx = gather_context(repo, "unrelated words here", "", extra_files=["src/app/other.py"])
+    assert "src/app/other.py" in ctx.sources

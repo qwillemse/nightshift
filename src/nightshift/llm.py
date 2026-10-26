@@ -23,8 +23,26 @@ class LLMError(RuntimeError):
     pass
 
 
+# USD per million tokens (input, output). Sonnet from Anthropic's model overview page, Opus from
+# a third-party guide; unknown models give no estimate. Check Anthropic's pricing page.
+PRICES_PER_MTOK = {
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-opus-5-5": (4.0, 20.0),
+}
+
+
+def estimate_cost(model: str, usage: dict[str, Any]) -> float | None:
+    price = PRICES_PER_MTOK.get(model)
+    if not price:
+        return None
+    tokens_in = usage.get("input_tokens", 0)
+    tokens_out = usage.get("output_tokens", 0)
+    return (tokens_in * price[0] + tokens_out * price[1]) / 1_000_000
+
+
 class LLM(Protocol):
     last_cost_usd: float | None
+    last_usage: dict[str, Any]
 
     def complete(self, system: str, user: str, *, model: str, max_tokens: int = 4000) -> str: ...
 
@@ -76,6 +94,7 @@ class AnthropicLLM:
                 raise LLMError(f"Anthropic API returned HTTP {status}: {payload[:300]!r}")
             data = json.loads(payload)
             self.last_usage = data.get("usage", {})
+            self.last_cost_usd = estimate_cost(model, self.last_usage)
             return "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
         raise LLMError("unreachable")
 
@@ -95,6 +114,7 @@ class ClaudeCLI:
         self.timeout = timeout
         self._run = run
         self.last_cost_usd: float | None = None
+        self.last_usage: dict[str, Any] = {}
 
     def complete(self, system: str, user: str, *, model: str, max_tokens: int = 4000) -> str:
         cmd = [
@@ -133,6 +153,7 @@ class ClaudeCLI:
         if data.get("is_error"):
             raise LLMError(f"claude CLI error: {data.get('result')}")
         self.last_cost_usd = data.get("total_cost_usd")
+        self.last_usage = data.get("usage") or {}
         return data["result"]
 
 
@@ -143,6 +164,7 @@ class FakeLLM:
         self._reply = reply
         self.calls: list[tuple[str, str, str]] = []  # (system, user, model)
         self.last_cost_usd: float | None = None
+        self.last_usage: dict[str, Any] = {}
 
     def complete(self, system: str, user: str, *, model: str, max_tokens: int = 4000) -> str:
         self.calls.append((system, user, model))

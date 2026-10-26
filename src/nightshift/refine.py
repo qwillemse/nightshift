@@ -30,9 +30,10 @@ HARD RULES
 2. Every acceptance criterion must carry a `quote`: an exact substring copied from the issue title or body that it is based on. If you cannot quote the issue, it is not a criterion: turn it into a question.
 3. Every code fact must carry `source` (a file path shown in the context) and `quote`: an exact substring of that file as shown. Do not describe code you were not shown.
 4. Ideas beyond the issue go ONLY in `suggestions`, each optional. The owner reviews them. Never put them in criteria.
-5. Ask specific, answerable questions, one decision each. Anything only the owner can decide (naming, scope, product behaviour, prices, which model or provider) has kind "business_decision". Mark a question `blocking` if work cannot start without the answer. If you propose answer options, put them in `options`; they are suggestions and the owner may choose differently.
+5. Ask few, specific, answerable questions: at most 4 in total and at most 2 `blocking`. Mark a question `blocking` only if work cannot reasonably start without the answer. Every non-blocking question needs a `default`: the assumption the work would proceed with, which the owner reviews. Anything only the owner can decide (naming, scope, product behaviour, prices, which model or provider) has kind "business_decision". If you propose answer options, put them in `options`; they are suggestions and the owner may choose differently.
 6. Set `possibly_already_done` only if the code shown clearly implements the request (with source and quote). Name `duplicate_of` only issue numbers listed under OTHER ISSUES.
 7. Keep it short. Do not pad. Output a single JSON object, no markdown fences, no commentary.
+8. If a file you need is not shown (for example the file that obviously implements the area), list up to 6 paths from the FILE TREE in `files_wanted`. You then get one more pass with those files included; do not guess about code you have not seen.
 
 JSON SCHEMA
 {
@@ -40,7 +41,8 @@ JSON SCHEMA
   "code_facts": [{"statement": "...", "source": "path", "quote": "exact text from that file"}],
   "likely_files": ["path"],
   "acceptance_criteria": [{"text": "...", "quote": "exact text from the issue"}],
-  "questions": [{"question": "...", "why": "...", "kind": "business_decision|scope|technical|acceptance", "blocking": true, "options": ["..."]}],
+  "questions": [{"question": "...", "why": "...", "kind": "business_decision|scope|technical|acceptance", "blocking": true, "default": "assumption if not blocking", "options": ["..."]}],
+  "files_wanted": ["path"],
   "suggestions": [{"text": "...", "reason": "..."}],
   "possibly_already_done": null,
   "duplicate_of": []
@@ -70,6 +72,7 @@ class Question:
     why: str = ""
     kind: str = "scope"
     blocking: bool = False
+    default: str = ""
     options: list[str] = field(default_factory=list)
 
 
@@ -94,6 +97,10 @@ class RefineResult:
     model: str = ""
     cost_usd: float | None = None
     files_shown: list[str] = field(default_factory=list)
+    files_requested: list[str] = field(default_factory=list)
+    rounds: int = 1
+    tokens_in: int = 0
+    tokens_out: int = 0
 
     @property
     def invention_flagged(self) -> bool:
@@ -175,6 +182,7 @@ def ground(
                     str(raw.get("why", "")),
                     str(raw.get("kind", "scope")),
                     bool(raw.get("blocking", False)),
+                    str(raw.get("default", "")),
                     options,
                 )
             )
@@ -216,13 +224,23 @@ def invention_check(decider: Decider, issue: Issue, result: RefineResult) -> flo
     return decider.ask(state, {"adds_requirements": question})["adds_requirements"].noul or 0.0
 
 
-def build_user_prompt(issue: Issue, ctx: Context) -> str:
+def build_user_prompt(issue: Issue, ctx: Context, requested: list[str] | None = None) -> str:
     number = f" #{issue.number}" if issue.number else ""
     body = issue.body.strip() or "(empty)"
     return (
         f"ISSUE{number}\nTitle: {issue.title}\nBody:\n{body}\n\n"
         f"CONTEXT (repository files; line numbers are not part of the files)\n{ctx.text}"
+        + (
+            f"\nNOTE: you asked for {', '.join(requested)}; they are included above. "
+            "This is your final answer: do not ask for more files.\n"
+            if requested
+            else ""
+        )
     )
+
+
+MAX_FILES_WANTED = 6
+MAX_BLOCKING = 2
 
 
 def refine_issue(
@@ -234,13 +252,38 @@ def refine_issue(
     model: str,
     other_issues: list[tuple[int, str]] | None = None,
 ) -> RefineResult:
-    ctx = gather_context(repo_path, issue.title, issue.body, other_issues)
-    raw = llm.complete(SYSTEM, build_user_prompt(issue, ctx), model=model)
+    """One pass, plus one more if the model asks for files it was not shown."""
     known = {n for n, _ in other_issues or []}
-    result = ground(parse_json(raw), issue, ctx, known)
+    ctx = gather_context(repo_path, issue.title, issue.body, other_issues)
+    requested: list[str] = []
+    tokens_in = tokens_out = 0
+    cost: float | None = 0.0
+    for round_no in (1, 2):
+        raw = llm.complete(SYSTEM, build_user_prompt(issue, ctx, requested), model=model)
+        usage = getattr(llm, "last_usage", {}) or {}
+        tokens_in += usage.get("input_tokens", 0)
+        tokens_out += usage.get("output_tokens", 0)
+        call_cost = llm.last_cost_usd
+        cost = None if (cost is None or call_cost is None) else cost + call_cost
+        data = parse_json(raw)
+        wanted = [
+            f
+            for f in _list(data, "files_wanted")
+            if isinstance(f, str) and f in ctx.tracked and f not in ctx.sources
+        ][:MAX_FILES_WANTED]
+        if not wanted or round_no == 2:
+            break
+        requested = wanted
+        ctx = gather_context(
+            repo_path, issue.title, issue.body, other_issues, extra_files=requested
+        )
+    result = ground(data, issue, ctx, known)
     result.model = model
-    result.cost_usd = llm.last_cost_usd
+    result.cost_usd = cost
     result.files_shown = ctx.files_used
+    result.files_requested = requested
+    result.rounds = round_no
+    result.tokens_in, result.tokens_out = tokens_in, tokens_out
     if decider is not None:
         result.invention_p = invention_check(decider, issue, result)
     return result
@@ -263,6 +306,8 @@ def render_markdown(result: RefineResult, issue: Issue) -> str:
             if q.why:
                 line += f" _(why: {q.why})_"
             out.append(line)
+            if q.default:
+                out.append(f"   - proceeds with this unless you say otherwise: {q.default}")
             if q.options:
                 out.append(f"   - suggested options: {' / '.join(q.options)}")
         out.append("")
@@ -299,6 +344,14 @@ def render_markdown(result: RefineResult, issue: Issue) -> str:
     if result.dropped:
         out.append(f"- Dropped because they could not be verified: {len(result.dropped)}")
         out += [f"  - {kind}: {text[:90]} ({reason})" for kind, text, reason in result.dropped]
-    cost = f", cost ${result.cost_usd:.3f}" if result.cost_usd else ""
-    out.append(f"- Files shown to the model: {len(result.files_shown)}{cost}")
+    blocking = sum(q.blocking for q in result.questions)
+    if blocking > MAX_BLOCKING:
+        out.append(
+            f"- Model marked {blocking} questions blocking (limit {MAX_BLOCKING}); review them"
+        )
+    shown = f"{len(result.files_shown)} files shown"
+    if result.files_requested:
+        shown += f", {len(result.files_requested)} requested in a second pass"
+    cost = f", about ${result.cost_usd:.3f}" if result.cost_usd else ""
+    out.append(f"- {shown}; {result.tokens_in} tokens in, {result.tokens_out} out{cost}")
     return "\n".join(out)

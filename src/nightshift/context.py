@@ -74,6 +74,7 @@ def gather_context(
     max_chars: int = 45000,
     max_files: int = 6,
     per_file: int = 7000,
+    extra_files: list[str] | None = None,
 ) -> Context:
     repo = Path(repo_path)
     tracked = tracked_files(repo)
@@ -109,6 +110,10 @@ def gather_context(
         listing = "## OTHER ISSUES\n" + "\n".join(f"#{n} {t}" for n, t in other_issues[:60]) + "\n"
         parts.append(listing)
         used += len(listing)
+
+    for rel in extra_files or []:  # files the model asked for: shown first, not scored
+        if rel in tracked and rel not in ctx.sources:
+            add_file(rel, per_file)
 
     kws = keywords(f"{title} {title} {body}")
     scored: list[tuple[int, str]] = []

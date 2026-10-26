@@ -131,3 +131,56 @@ def test_ground_handles_malformed_model_output():
     ctx = Context(text="", sources={}, tracked=[])
     result = ground({"acceptance_criteria": "oops", "questions": [1, {"x": 1}]}, ISSUE, ctx, set())
     assert result.criteria == [] and result.questions == []
+
+
+def test_second_pass_when_the_model_asks_for_files(tmp_path):
+    repo = make_repo(tmp_path, FILES)
+    first = {**MODEL_REPLY, "files_wanted": ["src/app/other.py", "src/app/ghost.py"]}
+    replies = iter([json.dumps(first), json.dumps(MODEL_REPLY)])
+    llm = FakeLLM(lambda system, user: next(replies))
+    result = refine_issue(ISSUE, repo, llm, None, model="m", other_issues=[(7, "Add servings")])
+    assert len(llm.calls) == 2
+    assert "## FILE src/app/other.py" not in llm.calls[0][1]
+    assert "## FILE src/app/other.py" in llm.calls[1][1]
+    assert "do not ask for more files" in llm.calls[1][1]
+    assert result.files_requested == ["src/app/other.py"]  # the made-up path is ignored
+    assert result.rounds == 2
+
+
+def test_never_more_than_two_passes(tmp_path):
+    repo = make_repo(tmp_path, FILES)
+    asking = json.dumps({**MODEL_REPLY, "files_wanted": ["src/app/other.py"]})
+    llm = FakeLLM(asking)
+    result = refine_issue(ISSUE, repo, llm, None, model="m")
+    assert len(llm.calls) == 2 and result.rounds == 2
+
+
+def test_single_pass_when_nothing_is_requested(tmp_path):
+    result, llm, _ = refine(tmp_path)
+    assert len(llm.calls) == 1 and result.rounds == 1
+
+
+def test_usage_is_summed_and_cost_reported(tmp_path):
+    repo = make_repo(tmp_path, FILES)
+    replies = iter(
+        [json.dumps({**MODEL_REPLY, "files_wanted": ["src/app/other.py"]}), json.dumps(MODEL_REPLY)]
+    )
+    llm = FakeLLM(lambda system, user: next(replies))
+    llm.last_usage = {"input_tokens": 1000, "output_tokens": 200}
+    llm.last_cost_usd = 0.01
+    result = refine_issue(ISSUE, repo, llm, None, model="m")
+    assert (result.tokens_in, result.tokens_out) == (2000, 400)
+    assert result.cost_usd == pytest.approx(0.02)
+    assert "2000 tokens in, 400 out, about $0.020" in render_markdown(result, ISSUE)
+
+
+def test_defaults_and_blocking_overflow_are_shown(tmp_path):
+    reply = {
+        **MODEL_REPLY,
+        "questions": [{"question": f"Q{i}?", "kind": "scope", "blocking": True} for i in range(3)]
+        + [{"question": "Rounding?", "kind": "technical", "default": "round to 1 decimal"}],
+    }
+    result, _, _ = refine(tmp_path, reply=reply)
+    md = render_markdown(result, ISSUE)
+    assert "proceeds with this unless you say otherwise: round to 1 decimal" in md
+    assert "Model marked 3 questions blocking (limit 2)" in md
