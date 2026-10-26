@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Callable
 
 from nightshift.store import Store
+from nightshift.thread import Comment, Thread, build_thread
 from nightshift.triage import GROUPS, Issue, Suggestion
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -48,9 +49,21 @@ class Gh:
             self.ensure_label(name)
         self._gh("issue", "edit", str(number), "--repo", self.repo, "--add-label", ",".join(names))
 
-    def comments(self, number: int) -> list[str]:
+    def comments(self, number: int) -> list[Comment]:
         out = self._gh("issue", "view", str(number), "--repo", self.repo, "--json", "comments")
-        return [c["body"] for c in json.loads(out).get("comments", [])]
+        return [
+            Comment(
+                author=(c.get("author") or {}).get("login", ""),
+                association=c.get("authorAssociation", "NONE"),
+                body=c.get("body", ""),
+                created_at=c.get("createdAt", ""),
+                url=c.get("url", ""),
+            )
+            for c in json.loads(out).get("comments", [])
+        ]
+
+    def thread(self, number: int) -> Thread:
+        return build_thread(self.comments(number))
 
     def comment(self, number: int, body: str) -> None:
         self._gh("issue", "comment", str(number), "--repo", self.repo, "--body", body)

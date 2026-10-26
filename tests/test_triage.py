@@ -96,3 +96,11 @@ def test_force_executor_picks_a_model_even_for_unclear_issues():
 def test_baseline_table_only_names_known_executors():
     assert set(BASELINE_EXECUTOR.values()) <= set(EXECUTORS)
     assert set(BASELINE_EXECUTOR) == {"trivial", "small", "medium", "large"}
+
+
+def test_discussion_is_sent_only_when_present():
+    decider = FakeDecider(make_answers())
+    triage(Issue("t", "b"), decider)
+    triage(Issue("t", "b", discussion=[{"from": "owner", "text": "1: yes"}]), decider)
+    assert "discussion" not in decider.calls[0][0]
+    assert decider.calls[2][0]["discussion"] == [{"from": "owner", "text": "1: yes"}]

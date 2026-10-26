@@ -127,8 +127,20 @@ for large issues, and when size confidence is low.
 **Delivery as GitHub comments (Decided 2026-10-26):** a refinement is posted as one comment
 on the issue, with a hidden marker so Nightshift can find it later. The issue body is never
 edited. The owner answers in replies; once answered, Nightshift posts a final "ready"
-spec comment, and the implementing agent reads the issue plus that spec. `nightshift refine
---post --gh-repo owner/name` does this; it skips an issue that already has a refinement.
+spec comment, and the implementing agent reads the issue plus that spec.
+
+**Review rounds and the comment thread (Decided 2026-10-26, implemented):** reviewing an issue
+always takes its comments into account. Each refinement is a numbered round (hidden marker
+`round=N`). The owner answers in the next comment; GitHub issue comments are flat, so a
+reply is simply the next comment. The next round reads the whole thread, records what was
+answered (each answer must quote the owner), does not re-ask it, and asks again or adds a
+new question when an answer is vague or opens a new decision (a vague "wherever it makes
+sense" produced a follow-up question in the test). A round runs only when there are new
+owner comments since the last one. Only comments from the owner, members and collaborators
+are trusted; comments from anyone else are never shown to the model, so a stranger on a
+public repo cannot steer it. Answers can also be given in the dashboard, which writes them
+back to GitHub as a comment. `nightshift refine --issue N --gh-repo owner/name [--post]`
+works on live issues; `--post` needs `--issue` so the live comments are always included.
 
 **Question policy (Decided 2026-10-26):**
 
@@ -210,7 +222,8 @@ A UI to watch a shift as it runs: current stage (reading issues, refining, imple
 testing), progress such as 4/10 issues, and per-issue status, plus the morning digest.
 Also meant as a showcase: it is the easiest way to show what Nightshift does.
 
-The morning digest lives in the dashboard too, so everything is in one place. Later the
+The dashboard also shows the issues and their comment threads, and lets the owner answer
+questions there; an answer is posted to GitHub as a comment. The morning digest lives in the dashboard too, so everything is in one place. Later the
 digest and its questions can also be pushed to other places (GitHub issue comments, Slack,
 email) as extra delivery channels; the dashboard stays the source of truth.
 

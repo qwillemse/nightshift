@@ -115,9 +115,12 @@ class Issue:
     body: str = ""
     number: int | None = None
     labels: list[str] = field(default_factory=list)
+    discussion: list[dict[str, str]] = field(default_factory=list)  # trusted comments only
 
     def state(self, budget_usd: float | None = None) -> dict[str, Any]:
         state: dict[str, Any] = {"title": self.title, "body": self.body}
+        if self.discussion:
+            state["discussion"] = self.discussion
         if budget_usd is not None:
             state["budget_usd"] = budget_usd
         return state

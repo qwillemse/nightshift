@@ -14,8 +14,9 @@ from nightshift.evals import (
 )
 from nightshift.github import Gh, apply_suggestion
 from nightshift.llm import LLMError
-from nightshift.refine import REFINEMENT_MARKER, Caution, refine_issue, render_markdown
+from nightshift.refine import Caution, refine_issue, render_markdown
 from nightshift.store import Store
+from nightshift.thread import marker
 from nightshift.triage import Issue, triage
 
 
@@ -52,21 +53,43 @@ def cmd_models(args: argparse.Namespace) -> None:
                 )
 
 
+def _refine_inputs(args: argparse.Namespace):
+    """Yield (issue, thread, other_issues): from live GitHub (--issue) or a cases file (--case)."""
+    if bool(args.case) == bool(args.issue):
+        raise SystemExit("give either --issue (live GitHub, reads comments) or --case (cases file)")
+    if args.issue:
+        if not args.gh_repo:
+            raise SystemExit("--issue needs --gh-repo owner/name")
+        gh = Gh(args.gh_repo)
+        open_issues = gh.list_issues("open")
+        for number in args.issue:
+            issue = gh.get_issue(number)
+            thread = gh.thread(number)
+            issue.discussion = thread.as_state()
+            others = [(i.number, i.title) for i in open_issues if i.number != number and i.number]
+            yield issue, thread, others
+    else:
+        if args.post:
+            raise SystemExit("--post needs --issue, so the live comments are taken into account")
+        cases = {c["id"]: c for c in load_cases(args.cases)}
+        for case_id in args.case:
+            case = cases[case_id]
+            others = [
+                (c["number"], c["title"])
+                for c in cases.values()
+                if c.get("on_github") and c.get("number") and c["id"] != case_id
+            ]
+            yield Issue(case["title"], case["body"], number=case.get("number")), None, others
+
+
 def cmd_refine(args: argparse.Namespace) -> None:
-    """Refine issues from a cases file. Prints by default; --post comments on GitHub."""
-    cases = {c["id"]: c for c in load_cases(args.cases)}
+    """Refine issues. Prints by default; --post adds a comment on GitHub (never edits the issue)."""
     llm, jev = llm_from_env(), jev_from_env()
     gh = Gh(args.gh_repo) if args.post else None
-    if args.post and not args.gh_repo:
-        raise SystemExit("--post needs --gh-repo owner/name")
-    for case_id in args.case:
-        case = cases[case_id]
-        others = [
-            (c["number"], c["title"])
-            for c in cases.values()
-            if c.get("on_github") and c.get("number") and c["id"] != case_id
-        ]
-        issue = Issue(case["title"], case["body"], number=case.get("number"))
+    for issue, thread, others in _refine_inputs(args):
+        if thread is not None and not thread.needs_new_round:
+            print(f"#{issue.number}: no new owner comments since the last refinement; skipped\n")
+            continue
         tri = triage(issue, jev)  # risk, size and confidence decide how cautious to be
         caution = Caution(tri.labels["risk"], tri.labels["size"], tri.confidence.get("size"))
         try:
@@ -78,6 +101,7 @@ def cmd_refine(args: argparse.Namespace) -> None:
                 model=args.model,
                 other_issues=others,
                 caution=caution,
+                thread=thread,
             )
         except LLMError as e:
             raise SystemExit(
@@ -85,15 +109,12 @@ def cmd_refine(args: argparse.Namespace) -> None:
                 "or set ANTHROPIC_API_KEY in .env."
             ) from None
         text = render_markdown(result, issue)
+        if thread is not None and thread.excluded:
+            text += f"\n- Ignored {thread.excluded} comment(s) from accounts that are not the owner or collaborators"
         print(text)
-        if gh is not None:
-            if not issue.number:
-                print("(not posted: this case has no GitHub issue number)")
-            elif any(REFINEMENT_MARKER in c for c in gh.comments(issue.number)):
-                print(f"(not posted: #{issue.number} already has a Nightshift refinement)")
-            else:
-                gh.comment(issue.number, f"{REFINEMENT_MARKER}\n{text}")
-                print(f"(posted as a comment on #{issue.number})")
+        if gh is not None and issue.number:
+            gh.comment(issue.number, f"{marker(result.thread_round)}\n{text}")
+            print(f"(posted as round {result.thread_round} on #{issue.number})")
         print("\n" + "-" * 60 + "\n")
 
 
@@ -130,11 +151,14 @@ def main() -> None:
     p = sub.add_parser(
         "refine", help="refine issues from a cases file; prints, or posts with --post"
     )
-    p.add_argument("--cases", required=True, help="cases JSON, e.g. evals/recipe_issues.json")
-    p.add_argument("--case", action="append", required=True, help="case id, repeatable")
+    p.add_argument("--cases", help="cases JSON, e.g. evals/recipe_issues.json (with --case)")
+    p.add_argument("--case", action="append", help="case id from the cases file, repeatable")
+    p.add_argument(
+        "--issue", type=int, action="append", help="live GitHub issue number, repeatable"
+    )
     p.add_argument("--repo-path", required=True, help="local checkout of the target repo")
     p.add_argument("--model", default=DEFAULT_REFINE_MODEL)
-    p.add_argument("--gh-repo", help="owner/name of the GitHub repo (needed for --post)")
+    p.add_argument("--gh-repo", help="owner/name of the GitHub repo (for --issue and --post)")
     p.add_argument(
         "--post", action="store_true", help="comment on the GitHub issue; never edits it"
     )

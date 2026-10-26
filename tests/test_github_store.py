@@ -88,7 +88,18 @@ def test_log_run(tmp_path):
     assert store.db.execute("SELECT kind, payload FROM runs").fetchall() == [("triage", '{"x": 1}')]
 
 
-def test_comments_returns_bodies():
-    data = {"comments": [{"body": "first"}, {"body": "<!-- nightshift:refinement -->\nhi"}]}
+def test_comments_parse_author_and_association():
+    data = {
+        "comments": [
+            {"body": "first", "authorAssociation": "OWNER", "author": {"login": "me"}},
+            {"body": "spam", "authorAssociation": "NONE", "author": None},
+        ]
+    }
     gh = Gh("o/r", run=FakeRun(json.dumps(data)))
-    assert gh.comments(3) == ["first", "<!-- nightshift:refinement -->\nhi"]
+    comments = gh.comments(3)
+    assert [(c.author, c.association, c.body) for c in comments] == [
+        ("me", "OWNER", "first"),
+        ("", "NONE", "spam"),
+    ]
+    thread = gh.thread(3)
+    assert thread.excluded == 1 and [e.text for e in thread.entries] == ["first"]
