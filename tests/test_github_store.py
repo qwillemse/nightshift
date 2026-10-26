@@ -86,3 +86,9 @@ def test_log_run(tmp_path):
     store = Store(tmp_path / "ns.db")
     store.log_run("triage", {"x": 1}, "o/r", 1)
     assert store.db.execute("SELECT kind, payload FROM runs").fetchall() == [("triage", '{"x": 1}')]
+
+
+def test_comments_returns_bodies():
+    data = {"comments": [{"body": "first"}, {"body": "<!-- nightshift:refinement -->\nhi"}]}
+    gh = Gh("o/r", run=FakeRun(json.dumps(data)))
+    assert gh.comments(3) == ["first", "<!-- nightshift:refinement -->\nhi"]

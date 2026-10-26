@@ -53,11 +53,16 @@ MODEL_REPLY = {
 }
 
 
-JEV_KEYS = ["overall", "request"] + [f"criterion_{i}" for i in range(1, 9)]
+STATEMENT_KEYS = ["request"] + [f"criterion_{i}" for i in range(1, 9)]
 
 
-def jev_answers(p: float) -> dict[str, Answer]:
-    return {key: Answer("noul", noul=p) for key in JEV_KEYS}
+def jev_answers(p: float, important: float = 0.9) -> dict[str, Answer]:
+    """Jev answers for every possible question: overall, invented per statement, important per statement."""
+    answers = {"overall": Answer("noul", noul=p)}
+    for key in STATEMENT_KEYS:
+        answers[key] = Answer("noul", noul=p)
+        answers[f"important_{key}"] = Answer("noul", noul=important)
+    return answers
 
 
 def refine(tmp_path, reply=MODEL_REPLY, jev_p=0.1):
@@ -234,7 +239,7 @@ def test_flagged_invention_triggers_one_revise_pass_with_feedback(tmp_path):
     assert result.revised and result.invention_before == pytest.approx(0.9)
     assert not result.invention_flagged
     assert all("INVENTED" not in c.text for c in result.criteria)
-    assert "(after one revise pass; was 0.90)" in render_markdown(result, ISSUE)
+    assert "(after one revise pass; total was 0.90)" in render_markdown(result, ISSUE)
 
 
 def test_still_flagged_after_revise_is_shown_flagged(tmp_path):
@@ -243,7 +248,7 @@ def test_still_flagged_after_revise_is_shown_flagged(tmp_path):
     assert len(llm.calls) == 2  # exactly one revise pass
     assert result.revised and result.invention_flagged
     md = render_markdown(result, ISSUE)
-    assert "STILL FLAGGED" in md and "(score 0.90)" in md
+    assert "STILL FLAGGED" in md and "adds something 0.90, important 0.90" in md
 
 
 def test_no_revise_when_not_flagged_or_when_disabled(tmp_path):
@@ -263,3 +268,40 @@ def test_revise_keeps_first_answer_if_revision_is_unreadable(tmp_path):
     result = refine_issue(ISSUE, repo, llm, decider, model="m")
     assert not result.revised and result.invention_flagged
     assert [c.text for c in result.criteria] == ["INVENTED rounding rule"]
+
+
+def test_small_inventions_are_disclosed_not_revised(tmp_path):
+    repo = make_repo(tmp_path, FILES)
+    llm = FakeLLM(json.dumps(MODEL_REPLY))
+    decider = FakeDecider(jev_answers(0.9, important=0.1))  # invented but unimportant
+    result = refine_issue(ISSUE, repo, llm, decider, model="m")
+    assert len(llm.calls) == 1 and not result.revised
+    assert not result.invention_flagged and result.serious == []
+    assert "criterion_1" in result.small
+    md = render_markdown(result, ISSUE)
+    assert "small addition, not in the issue" in md and "small additions disclosed: 2" in md
+
+
+def test_riskier_issues_leave_less_to_guess(tmp_path):
+    from nightshift.refine import Caution
+
+    assert Caution("low", "small").importance_threshold() == pytest.approx(0.5)
+    assert Caution("high", "small").importance_threshold() == pytest.approx(0.2)
+    assert Caution("high", "large", 0.2).importance_threshold() == pytest.approx(0.05)  # floor
+
+    repo = make_repo(tmp_path, FILES)
+    decider = FakeDecider(jev_answers(0.9, important=0.3))
+    low = refine_issue(
+        ISSUE, repo, FakeLLM(json.dumps(MODEL_REPLY)), decider, model="m", caution=Caution("low")
+    )
+    high = refine_issue(
+        ISSUE,
+        repo,
+        FakeLLM(json.dumps(MODEL_REPLY)),
+        decider,
+        model="m",
+        caution=Caution("high"),
+        revise=False,
+    )
+    assert not low.invention_flagged and low.small  # 0.3 < 0.5: small
+    assert high.invention_flagged  # 0.3 >= 0.2: must be asked about

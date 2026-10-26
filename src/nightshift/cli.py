@@ -14,7 +14,7 @@ from nightshift.evals import (
 )
 from nightshift.github import Gh, apply_suggestion
 from nightshift.llm import LLMError
-from nightshift.refine import refine_issue, render_markdown
+from nightshift.refine import REFINEMENT_MARKER, Caution, refine_issue, render_markdown
 from nightshift.store import Store
 from nightshift.triage import Issue, triage
 
@@ -53,9 +53,12 @@ def cmd_models(args: argparse.Namespace) -> None:
 
 
 def cmd_refine(args: argparse.Namespace) -> None:
-    """Dry run: prints the refinement for cases from a file. Never touches GitHub."""
+    """Refine issues from a cases file. Prints by default; --post comments on GitHub."""
     cases = {c["id"]: c for c in load_cases(args.cases)}
     llm, jev = llm_from_env(), jev_from_env()
+    gh = Gh(args.gh_repo) if args.post else None
+    if args.post and not args.gh_repo:
+        raise SystemExit("--post needs --gh-repo owner/name")
     for case_id in args.case:
         case = cases[case_id]
         others = [
@@ -64,16 +67,33 @@ def cmd_refine(args: argparse.Namespace) -> None:
             if c.get("on_github") and c.get("number") and c["id"] != case_id
         ]
         issue = Issue(case["title"], case["body"], number=case.get("number"))
+        tri = triage(issue, jev)  # risk, size and confidence decide how cautious to be
+        caution = Caution(tri.labels["risk"], tri.labels["size"], tri.confidence.get("size"))
         try:
             result = refine_issue(
-                issue, args.repo_path, llm, jev, model=args.model, other_issues=others
+                issue,
+                args.repo_path,
+                llm,
+                jev,
+                model=args.model,
+                other_issues=others,
+                caution=caution,
             )
         except LLMError as e:
             raise SystemExit(
                 f"{e}\nLog in by running `claude` and typing /login, "
                 "or set ANTHROPIC_API_KEY in .env."
             ) from None
-        print(render_markdown(result, issue))
+        text = render_markdown(result, issue)
+        print(text)
+        if gh is not None:
+            if not issue.number:
+                print("(not posted: this case has no GitHub issue number)")
+            elif any(REFINEMENT_MARKER in c for c in gh.comments(issue.number)):
+                print(f"(not posted: #{issue.number} already has a Nightshift refinement)")
+            else:
+                gh.comment(issue.number, f"{REFINEMENT_MARKER}\n{text}")
+                print(f"(posted as a comment on #{issue.number})")
         print("\n" + "-" * 60 + "\n")
 
 
@@ -107,11 +127,17 @@ def main() -> None:
     p.add_argument("--rows", action="store_true", help="show every case")
     p.set_defaults(func=cmd_models)
 
-    p = sub.add_parser("refine", help="dry run: refine issues from a cases file, print only")
+    p = sub.add_parser(
+        "refine", help="refine issues from a cases file; prints, or posts with --post"
+    )
     p.add_argument("--cases", required=True, help="cases JSON, e.g. evals/recipe_issues.json")
     p.add_argument("--case", action="append", required=True, help="case id, repeatable")
     p.add_argument("--repo-path", required=True, help="local checkout of the target repo")
     p.add_argument("--model", default=DEFAULT_REFINE_MODEL)
+    p.add_argument("--gh-repo", help="owner/name of the GitHub repo (needed for --post)")
+    p.add_argument(
+        "--post", action="store_true", help="comment on the GitHub issue; never edits it"
+    )
     p.set_defaults(func=cmd_refine)
 
     p = sub.add_parser("corrections", help="show labels a human changed after we suggested")

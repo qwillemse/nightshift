@@ -48,6 +48,10 @@ class Gh:
             self.ensure_label(name)
         self._gh("issue", "edit", str(number), "--repo", self.repo, "--add-label", ",".join(names))
 
+    def comments(self, number: int) -> list[str]:
+        out = self._gh("issue", "view", str(number), "--repo", self.repo, "--json", "comments")
+        return [c["body"] for c in json.loads(out).get("comments", [])]
+
     def comment(self, number: int, body: str) -> None:
         self._gh("issue", "comment", str(number), "--repo", self.repo, "--body", body)
 

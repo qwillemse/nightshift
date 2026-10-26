@@ -21,6 +21,7 @@ from nightshift.llm import LLM
 from nightshift.triage import Issue
 
 INVENTION_FLAG_FROM = 0.5
+REFINEMENT_MARKER = "<!-- nightshift:refinement -->"
 KIND_ORDER = {"business_decision": 0, "scope": 1, "technical": 2, "acceptance": 3}
 
 SYSTEM = """You prepare vague GitHub issues so a coding agent can implement them. You work for the repository owner.
@@ -90,6 +91,24 @@ class Idea:
 
 
 @dataclass
+class Caution:
+    """How careful to be, from triage: the riskier or bigger the issue, the less is left to guess."""
+
+    risk: str = "low"
+    size: str = "small"
+    size_confidence: float | None = None
+
+    def importance_threshold(self) -> float:
+        """A statement counts as important (must be a question) when its score reaches this."""
+        threshold = {"low": 0.5, "medium": 0.35, "high": 0.2}.get(self.risk, 0.5)
+        if self.size == "large":
+            threshold -= 0.1
+        if self.size_confidence is not None and self.size_confidence < 0.4:
+            threshold -= 0.1
+        return max(threshold, 0.05)
+
+
+@dataclass
 class RefineResult:
     understood_request: str = ""
     facts: list[Fact] = field(default_factory=list)
@@ -104,6 +123,10 @@ class RefineResult:
     invention_p: float | None = None
     invention_items: dict[str, float] = field(default_factory=dict)
     invention_statements: dict[str, str] = field(default_factory=dict)
+    importance_items: dict[str, float] = field(default_factory=dict)
+    importance_threshold: float = 0.5
+    serious: list[str] = field(default_factory=list)  # invented AND important
+    small: list[str] = field(default_factory=list)  # invented but unimportant: disclosed
     invention_before: float | None = None
     revised: bool = False
     model: str = ""
@@ -116,7 +139,7 @@ class RefineResult:
 
     @property
     def invention_flagged(self) -> bool:
-        return self.invention_p is not None and self.invention_p >= INVENTION_FLAG_FROM
+        return bool(self.serious)
 
 
 def _norm(text: str) -> str:
@@ -230,8 +253,12 @@ def improved_text(result: RefineResult) -> str:
 
 def invention_check(
     decider: Decider, issue: Issue, result: RefineResult
-) -> tuple[float, dict[str, float], dict[str, str]]:
-    """Overall score plus a score per statement (request, each criterion). Higher = more invented."""
+) -> tuple[float, dict[str, float], dict[str, float], dict[str, str]]:
+    """Scores from Jev: (overall invented, invented per statement, important per statement, statements).
+
+    Invented = adds something the issue does not state. Important = a wrong guess would be costly or
+    hard to revert, or it is a decision only the owner can make.
+    """
     statements: dict[str, str] = {}
     if result.understood_request:
         statements["request"] = result.understood_request
@@ -248,39 +275,43 @@ def invention_check(
             f"Does statements.{key} add any requirement, feature, behaviour or restriction "
             "that the original issue does not state?"
         )
+        questions[f"important_{key}"] = YesNo(
+            f"Would a wrong guess about statements.{key} be costly or hard to revert, or is it a "
+            "decision only the product owner can make (naming, scope, user-visible behaviour, "
+            "pricing, data, security)?"
+        )
     state = {
         "original": {"title": issue.title, "body": issue.body},
         "improved": improved_text(result),
         "statements": statements,
     }
     answers = decider.ask(state, questions)
-    items = {key: answers[key].noul or 0.0 for key in statements}
-    return answers["overall"].noul or 0.0, items, statements
+    invented = {key: answers[key].noul or 0.0 for key in statements}
+    important = {key: answers[f"important_{key}"].noul or 0.0 for key in statements}
+    return answers["overall"].noul or 0.0, invented, important, statements
 
 
-def flagged_statements(result: RefineResult) -> list[tuple[str, str, float]]:
-    """Statements the checker scored as adding requirements; all of them if only the total is high."""
-    flagged = [
-        (key, result.invention_statements[key], p)
-        for key, p in result.invention_items.items()
-        if p >= INVENTION_FLAG_FROM
+def serious_statements(result: RefineResult) -> list[tuple[str, str, float, float]]:
+    return [
+        (k, result.invention_statements[k], result.invention_items[k], result.importance_items[k])
+        for k in result.serious
     ]
-    if not flagged:
-        flagged = [
-            (key, text, result.invention_items.get(key, 0.0))
-            for key, text in result.invention_statements.items()
-        ]
-    return flagged
 
 
-def revise_prompt(base_user: str, previous_raw: str, flagged: list[tuple[str, str, float]]) -> str:
-    lines = "\n".join(f'- {key}: "{text}" (checker score {p:.2f})' for key, text, p in flagged)
+def revise_prompt(
+    base_user: str, previous_raw: str, serious: list[tuple[str, str, float, float]]
+) -> str:
+    lines = "\n".join(
+        f'- {key}: "{text}" (adds something: {inv:.2f}, important: {imp:.2f})'
+        for key, text, inv, imp in serious
+    )
     return (
         f"{base_user}\n\nYOUR PREVIOUS ANSWER\n{previous_raw}\n\nREVISE\n"
         "An independent checker judged that these statements add requirements, features, "
-        f"behaviours or restrictions that the issue does not state:\n{lines}\n"
+        "behaviours or restrictions that the issue does not state, and that getting them wrong "
+        f"would matter:\n{lines}\n"
         "Revise your answer. Remove each flagged statement, or rewrite it so that it only "
-        "restates what the issue says; anything that needs a decision becomes a question. Keep "
+        "restates what the issue says, and turn what needs deciding into a question. Keep "
         "what was fine. Return the full JSON object again."
     )
 
@@ -317,14 +348,21 @@ class _Usage:
         self.cost = None if (self.cost is None or call_cost is None) else self.cost + call_cost
 
 
-def _checked(result: RefineResult, issue: Issue, decider: Decider | None) -> RefineResult:
-    if decider is not None:
-        p, items, statements = invention_check(decider, issue, result)
-        result.invention_p, result.invention_items, result.invention_statements = (
-            p,
-            items,
-            statements,
-        )
+def _checked(
+    result: RefineResult, issue: Issue, decider: Decider | None, caution: Caution
+) -> RefineResult:
+    if decider is None:
+        return result
+    overall, invented, important, statements = invention_check(decider, issue, result)
+    result.invention_p, result.invention_items = overall, invented
+    result.importance_items, result.invention_statements = important, statements
+    result.importance_threshold = caution.importance_threshold()
+    for key in statements:
+        if invented[key] >= INVENTION_FLAG_FROM:
+            if important[key] >= result.importance_threshold:
+                result.serious.append(key)
+            else:
+                result.small.append(key)
     return result
 
 
@@ -337,9 +375,11 @@ def refine_issue(
     model: str,
     other_issues: list[tuple[int, str]] | None = None,
     revise: bool = True,
+    caution: Caution | None = None,
 ) -> RefineResult:
     """One pass, one more if the model asks for files, and one revise pass if Jev flags inventions."""
     known = {n for n, _ in other_issues or []}
+    caution = caution or Caution()
     ctx = gather_context(repo_path, issue.title, issue.body, other_issues)
     requested: list[str] = []
     usage = _Usage()
@@ -359,16 +399,16 @@ def refine_issue(
         ctx = gather_context(
             repo_path, issue.title, issue.body, other_issues, extra_files=requested
         )
-    result = _checked(ground(data, issue, ctx, known), issue, decider)
+    result = _checked(ground(data, issue, ctx, known), issue, decider, caution)
 
     if revise and decider is not None and result.invention_flagged:
         first_p = result.invention_p
         raw2 = llm.complete(
-            SYSTEM, revise_prompt(user, raw, flagged_statements(result)), model=model
+            SYSTEM, revise_prompt(user, raw, serious_statements(result)), model=model
         )
         usage.add(llm)
         try:
-            revised = _checked(ground(parse_json(raw2), issue, ctx, known), issue, decider)
+            revised = _checked(ground(parse_json(raw2), issue, ctx, known), issue, decider, caution)
         except RefineError:
             revised = None  # keep the first answer, still flagged
         if revised is not None:
@@ -408,7 +448,13 @@ def render_markdown(result: RefineResult, issue: Issue) -> str:
         out.append("")
     if result.criteria:
         out.append("**Acceptance criteria (each taken from the issue text)**")
-        out += [f'- [ ] {c.text}  _(from: "{c.quote}")_' for c in result.criteria]
+        for i, c in enumerate(result.criteria, 1):
+            tag = (
+                "  _(small addition, not in the issue; revert if you disagree)_"
+                if f"criterion_{i}" in result.small
+                else ""
+            )
+            out.append(f'- [ ] {c.text}  _(from: "{c.quote}")_{tag}')
         out.append("")
     if result.facts:
         out.append("**What the code shows**")
@@ -438,19 +484,26 @@ def render_markdown(result: RefineResult, issue: Issue) -> str:
     if result.invention_p is None:
         out.append("- Invention check (Jev): not run")
     else:
-        verdict = "STILL FLAGGED, review the criteria" if result.invention_flagged else "ok"
-        if not result.revised and result.invention_flagged:
-            verdict = "FLAGGED, review the criteria"
         line = (
-            f"- Invention check (Jev): p(adds requirements) = {result.invention_p:.2f}, {verdict}"
+            f"- Invention check (Jev): total {result.invention_p:.2f}; "
+            f"serious (adds something important): {len(result.serious)}; "
+            f"small additions disclosed: {len(result.small)}"
         )
         if result.revised and result.invention_before is not None:
-            line += f" (after one revise pass; was {result.invention_before:.2f})"
+            line += f" (after one revise pass; total was {result.invention_before:.2f})"
         out.append(line)
+        out.append(
+            f"  - importance threshold {result.importance_threshold:.2f} (lower = more cautious)"
+        )
         if result.invention_flagged:
+            out.append(
+                "  - STILL FLAGGED, review these:"
+                if result.revised
+                else "  - FLAGGED, review these:"
+            )
             out += [
-                f'  - {key}: "{text[:100]}" (score {p:.2f})'
-                for key, text, p in flagged_statements(result)
+                f'    - {key}: "{text[:100]}" (adds something {inv:.2f}, important {imp:.2f})'
+                for key, text, inv, imp in serious_statements(result)
             ]
     if result.dropped:
         out.append(f"- Dropped because they could not be verified: {len(result.dropped)}")

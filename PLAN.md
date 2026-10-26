@@ -116,6 +116,20 @@ trademark conflicts"): all three scored 0.92 to 0.96 (total 0.97); after one rev
 total was 0.27, one faithful criterion remained, and the scope claim had become a question
 ("Which places should the rename cover?").
 
+**Invention policy (Decided 2026-10-26, thresholds are guesses):** small inventions are fine,
+but important ones must become questions. Jev scores each statement twice: does it add
+something the issue does not state, and would a wrong guess be costly or is it the owner's
+call. Added AND important: revised into a question (one revise pass, then shown as
+flagged). Added but unimportant: kept, tagged "small addition" and disclosed. The
+importance threshold depends on triage: lower (more cautious) for medium or high risk,
+for large issues, and when size confidence is low.
+
+**Delivery as GitHub comments (Decided 2026-10-26):** a refinement is posted as one comment
+on the issue, with a hidden marker so Nightshift can find it later. The issue body is never
+edited. The owner answers in replies; once answered, Nightshift posts a final "ready"
+spec comment, and the implementing agent reads the issue plus that spec. `nightshift refine
+--post --gh-repo owner/name` does this; it skips an issue that already has a refinement.
+
 **Question policy (Decided 2026-10-26):**
 
 - No cap on the number of questions, and no cap on blocking ones. Asking beats guessing:
