@@ -18,7 +18,14 @@ be tested or tuned with data, not a commitment.
 - Jev (TypeSafe's decision model) answers constrained questions (Choice / Score / Yes-No).
   Coding agents do the actual work.
 - Default executor is Claude Code; simpler issues go to cheaper/faster models. Not tied
-  to Anthropic: any model that fits the issue best can be used, possibly chosen by Jev.
+  to Anthropic: any model that fits the issue best can be used.
+- The coding model is chosen per issue from its difficulty and size and from the
+  available budget: a better model for harder or larger issues, a cheaper one for easy ones.
+- Different stages may use different models (triage, issue improvement and creation,
+  implementation, testing, review, digest). They need not be the same model.
+- Jev chooses the model from the start, on intuition (descriptions of each model and the
+  issue, no history). Once run logs exist, past performance is added to its input so it
+  chooses from experience. The static table stays as a baseline to compare Jev's picks to.
 - Every run is logged (executor, tier, outcome, cost, time) so routing can be learned later.
 - A watchdog checks progress during a run; a pre-PR check runs before opening the PR.
 - Auto-merge into a `dev` branch is allowed only for changes that clear several gates.
@@ -43,10 +50,13 @@ be tested or tuned with data, not a commitment.
 4. **Morning digest:** what changed, what needs testing, what issues need reviewing,
    questions for business decisions, new issues, what is still to do.
 
-Rule for improving issues: **never invent.** Improvement may add what is found in the
-code and docs, tighten wording, and turn gaps into questions. It must not add features,
-requirements or acceptance criteria the owner did not ask for. Anything it would have to
-guess becomes a question, and added content is labeled as inferred from code or docs.
+Rule for improving issues: **no silent inventions.** Improving an existing issue may add
+what is found in the code and docs, tighten wording, and turn gaps into questions. It
+must not quietly add features, requirements or acceptance criteria the owner did not ask
+for; anything it would have to guess becomes a question, and added content is labeled as
+inferred from code or docs. Nightshift **may suggest new things**, but as clearly marked
+suggestions or proposed issues for the human to review (keep / don't keep / alter), never
+as edits slipped into an existing issue.
 
 ## Pipeline detail (outline)
 
@@ -126,8 +136,11 @@ raw ones. Risk to watch: the agent inventing requirements that sound plausible.
 
 - Tier names and what each tier means (trivial / small / medium / large).
 - Time and cost limits per tier. Start with generous placeholders, tighten from run logs.
-- Which model suits which tier. Start with a simple table (see below), let run logs show
-  if it is wrong. Jev choosing the executor only after there is data.
+- Which model suits which tier and stage. The table below is the baseline; Jev's
+  intuition-based picks are compared against it, and run logs show which is better.
+  Stage roles (guess): Jev triage and routing; a mid-size model for improving, asking,
+  splitting and creating issues; the tier table for implementation; a different model
+  from the implementer for review and testing; the cheapest model for the digest text.
   Starting table (from third-party Oct 2026 benchmark roundups, unverified):
   trivial → claude-haiku-5-5, small/medium → claude-sonnet-5-5, large or retries →
   claude-opus-5-5. Codex (OpenAI GPT-6 line) is the first alternative to compare.
