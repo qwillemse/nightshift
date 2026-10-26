@@ -413,23 +413,6 @@
     "on_github": false
   },
   {
-    "id": "recipe-x8",
-    "number": null,
-    "title": "Recipes feel boring",
-    "body": "The recipes it suggests feel generic and samey. Make them better.\n",
-    "expected": {
-      "size": "medium",
-      "clarity": "low",
-      "risk": "low",
-      "type": "feature"
-    },
-    "flags": {
-      "needs_human": true
-    },
-    "notes": "Deliberately vague; should go to refinement or a human",
-    "on_github": false
-  },
-  {
     "id": "recipe-x9",
     "number": null,
     "title": "Add user accounts so each person has their own pantry",

@@ -106,6 +106,20 @@ the loop ends with an issue that is ready to implement on the next shift:
    Notes template), Jev re-scores clarity, and if it is clear the issue becomes `ns:ready`.
 4. **Implement:** the following shift picks it up.
 
+**Question policy (Decided 2026-10-26):**
+
+- No cap on the number of questions, and no cap on blocking ones. Asking beats guessing:
+  when unsure whether a choice matters, ask. Many blocking questions on a very unclear
+  issue is expected and fine.
+- The owner can answer, skip, or push a question to later. A skipped non-blocking question
+  proceeds with its stated default; a blocking one keeps the issue waiting.
+- Obvious or unimportant choices (for example how to round a displayed number) Nightshift
+  may make itself. They are listed as "decisions made" in the digest and the PR so they can
+  be reverted.
+- Nightshift may suggest additions it thinks are obvious, always as marked suggestions,
+  never silently added to the issue.
+- The digest therefore also lists decisions Nightshift made itself.
+
 The morning digest carries three kinds of items the human can act on:
 
 - **Questions** on vague or decision-dependent issues, with Nightshift's proposed rewrite.
@@ -146,13 +160,11 @@ deliberately inventive outputs, report tokens and cost.
 
 **Fixes applied and re-run (2026-10-26):** the model can now ask for files it was not shown
 and gets one more pass (so x8 saw the real prompt and no longer suggests adding a variety
-instruction that already exists); at most 4 questions and 2 blocking, with a stated default
-for each non-blocking question; tokens and estimated cost are reported (about $0.10 per
+instruction that already exists); a stated default for each non-blocking question (the caps of 4 questions and 2 blocking were later removed, see Question policy); tokens and estimated cost are reported (about $0.10 per
 issue, roughly 35k tokens in, mostly context). Jev's invention check was validated on
 4 issues x 3 variants: faithful improvements scored 0.26 to 0.46, ones with one small
 added requirement 0.60 to 0.92, ones with several invented requirements 0.93 to 0.98, so
-the 0.5 flag separated them on this small sample. Open question for the owner: may a
-non-blocking question proceed with its stated default if unanswered?
+the 0.5 flag separated them on this small sample. The owner's answer on defaults is in Question policy.
 
 When triage finds an issue unclear, a refine step runs before asking a human:
 

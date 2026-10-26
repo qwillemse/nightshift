@@ -30,7 +30,7 @@ HARD RULES
 2. Every acceptance criterion must carry a `quote`: an exact substring copied from the issue title or body that it is based on. If you cannot quote the issue, it is not a criterion: turn it into a question.
 3. Every code fact must carry `source` (a file path shown in the context) and `quote`: an exact substring of that file as shown. Do not describe code you were not shown.
 4. Ideas beyond the issue go ONLY in `suggestions`, each optional. The owner reviews them. Never put them in criteria.
-5. Ask few, specific, answerable questions: at most 4 in total and at most 2 `blocking`. Mark a question `blocking` only if work cannot reasonably start without the answer. Every non-blocking question needs a `default`: the assumption the work would proceed with, which the owner reviews. Anything only the owner can decide (naming, scope, product behaviour, prices, which model or provider) has kind "business_decision". If you propose answer options, put them in `options`; they are suggestions and the owner may choose differently.
+5. Ask as many specific, answerable questions as you need. There is no limit, and asking is better than guessing. Mark a question `blocking` whenever a wrong guess would be costly or hard to revert, or the decision is the owner's (naming, scope, product behaviour, prices, which model or provider: kind "business_decision"). If you are unsure whether a choice matters, ask. Only when a choice is obvious or unimportant (for example how to round a displayed number) may you make it yourself: put it in `decisions` with the choice and why, not in `questions`. The owner sees every decision in the digest and can revert it. A non-blocking question needs a `default`, used if the owner skips it. If you propose answer options, put them in `options`; they are suggestions and the owner may choose differently.
 6. Set `possibly_already_done` only if the code shown clearly implements the request (with source and quote). Name `duplicate_of` only issue numbers listed under OTHER ISSUES.
 7. Keep it short. Do not pad. Output a single JSON object, no markdown fences, no commentary.
 8. If a file you need is not shown (for example the file that obviously implements the area), list up to 6 paths from the FILE TREE in `files_wanted`. You then get one more pass with those files included; do not guess about code you have not seen.
@@ -42,6 +42,7 @@ JSON SCHEMA
   "likely_files": ["path"],
   "acceptance_criteria": [{"text": "...", "quote": "exact text from the issue"}],
   "questions": [{"question": "...", "why": "...", "kind": "business_decision|scope|technical|acceptance", "blocking": true, "default": "assumption if not blocking", "options": ["..."]}],
+  "decisions": [{"decision": "...", "why": "..."}],
   "files_wanted": ["path"],
   "suggestions": [{"text": "...", "reason": "..."}],
   "possibly_already_done": null,
@@ -77,6 +78,12 @@ class Question:
 
 
 @dataclass
+class Decision:
+    text: str
+    why: str = ""
+
+
+@dataclass
 class Idea:
     text: str
     reason: str = ""
@@ -90,6 +97,7 @@ class RefineResult:
     criteria: list[Criterion] = field(default_factory=list)
     questions: list[Question] = field(default_factory=list)
     suggestions: list[Idea] = field(default_factory=list)
+    decisions: list[Decision] = field(default_factory=list)
     possibly_done: Fact | None = None
     duplicate_of: list[int] = field(default_factory=list)
     dropped: list[tuple[str, str, str]] = field(default_factory=list)  # (kind, text, reason)
@@ -192,6 +200,10 @@ def ground(
         if isinstance(raw, dict) and raw.get("text"):
             result.suggestions.append(Idea(str(raw["text"]), str(raw.get("reason", ""))))
 
+    for raw in _list(data, "decisions"):
+        if isinstance(raw, dict) and raw.get("decision"):
+            result.decisions.append(Decision(str(raw["decision"]), str(raw.get("why", ""))))
+
     for path in _list(data, "likely_files"):
         if path in ctx.tracked:
             result.likely_files.append(path)
@@ -240,7 +252,6 @@ def build_user_prompt(issue: Issue, ctx: Context, requested: list[str] | None = 
 
 
 MAX_FILES_WANTED = 6
-MAX_BLOCKING = 2
 
 
 def refine_issue(
@@ -326,6 +337,12 @@ def render_markdown(result: RefineResult, issue: Issue) -> str:
         out += ["**Possibly already done**", f"- {d.statement} (`{d.source}`)", ""]
     if result.duplicate_of:
         out += ["**Possible duplicates**", ", ".join(f"#{n}" for n in result.duplicate_of), ""]
+    if result.decisions:
+        out.append(
+            "**Decisions Nightshift made itself (obvious or unimportant; revert if you disagree)**"
+        )
+        out += [f"- {d.text}" + (f" _(why: {d.why})_" if d.why else "") for d in result.decisions]
+        out.append("")
     if result.suggestions:
         out.append("**Suggestions (optional, not part of the issue; keep / drop / alter)**")
         out += [
@@ -344,11 +361,6 @@ def render_markdown(result: RefineResult, issue: Issue) -> str:
     if result.dropped:
         out.append(f"- Dropped because they could not be verified: {len(result.dropped)}")
         out += [f"  - {kind}: {text[:90]} ({reason})" for kind, text, reason in result.dropped]
-    blocking = sum(q.blocking for q in result.questions)
-    if blocking > MAX_BLOCKING:
-        out.append(
-            f"- Model marked {blocking} questions blocking (limit {MAX_BLOCKING}); review them"
-        )
     shown = f"{len(result.files_shown)} files shown"
     if result.files_requested:
         shown += f", {len(result.files_requested)} requested in a second pass"

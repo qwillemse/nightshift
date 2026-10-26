@@ -174,13 +174,26 @@ def test_usage_is_summed_and_cost_reported(tmp_path):
     assert "2000 tokens in, 400 out, about $0.020" in render_markdown(result, ISSUE)
 
 
-def test_defaults_and_blocking_overflow_are_shown(tmp_path):
+def test_no_cap_on_questions_and_defaults_are_shown(tmp_path):
     reply = {
         **MODEL_REPLY,
-        "questions": [{"question": f"Q{i}?", "kind": "scope", "blocking": True} for i in range(3)]
+        "questions": [{"question": f"Q{i}?", "kind": "scope", "blocking": True} for i in range(7)]
         + [{"question": "Rounding?", "kind": "technical", "default": "round to 1 decimal"}],
     }
     result, _, _ = refine(tmp_path, reply=reply)
     md = render_markdown(result, ISSUE)
+    assert len(result.questions) == 8
     assert "proceeds with this unless you say otherwise: round to 1 decimal" in md
-    assert "Model marked 3 questions blocking (limit 2)" in md
+    assert "limit" not in md
+
+
+def test_self_made_decisions_are_listed_for_review(tmp_path):
+    reply = {
+        **MODEL_REPLY,
+        "decisions": [{"decision": "Round amounts to 1 decimal", "why": "display only"}],
+    }
+    result, _, _ = refine(tmp_path, reply=reply)
+    assert [d.text for d in result.decisions] == ["Round amounts to 1 decimal"]
+    md = render_markdown(result, ISSUE)
+    assert "Decisions Nightshift made itself" in md and "Round amounts to 1 decimal" in md
+    assert "Round amounts" not in "\n".join(c.text for c in result.criteria)
