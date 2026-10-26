@@ -118,6 +118,13 @@ which also works from a phone. Alternatives: labels or reactions on each item.
 
 ## Refinement (outline; details are hypotheses)
 
+**Trigger (implemented, thresholds are guesses):** triage returns disposition `refine` when
+clarity is low or the model's confidence in the size is below 0.4. A refine-disposition
+issue gets no model pick; it is improved first and triaged again, and only then is the
+implementing model chosen (second Jev call, which sees the classification and budget).
+On the 30 recipe cases, 18 were sent to refine (almost all because of low clarity) and 12
+proceeded.
+
 When triage finds an issue unclear, a refine step runs before asking a human:
 
 1. An agent reads the relevant code, tests and docs and drafts what is missing: likely
@@ -149,6 +156,14 @@ raw ones. Risk to watch: the agent inventing requirements that sound plausible.
 - Jev thresholds for "high confidence". Tune using the eval, not guesses.
 - Splitting `risky` into per-category questions (schema, auth, deps, deploy).
 - Proposed-issue and split rules: caps, depth limits, auto-approval later.
+- Model for the refine/ask stage (reads code and docs, drafts questions). Starting guess:
+  a mid-size model by default, a stronger one when the issue is large or risky or the repo
+  is big, a cheaper one for tiny issues. Compare models on invention rate and question
+  quality, not cost alone.
+- Bump the implementing model up one level when risk is high (the SQLite issue got Sonnet
+  because Jev sized it medium, though its risk was high).
+- A "needs a business decision" Jev question. Not built yet: the accounts issue (x9) went
+  straight to a model pick although it hinges on decisions only the owner can make.
 - Manual running-app testing by a browser agent for some tiers.
 - Python for the orchestrator (not final).
 - Hosting: not the laptop overnight. Build and try it locally first; the orchestrator is a

@@ -104,7 +104,9 @@ def compare_executors(
     """
     rows = []
     for case in cases:
-        suggestion = triage(Issue(case["title"], case.get("body", "")), decider, budget_usd)
+        suggestion = triage(
+            Issue(case["title"], case.get("body", "")), decider, budget_usd, force_executor=True
+        )
         size = case["expected"]["size"]
         rows.append(
             ExecutorRow(

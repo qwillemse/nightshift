@@ -95,7 +95,6 @@ QUESTIONS: dict[str, Question] = {
     "priority": PRIORITY,
     **RISK_QUESTIONS,
     "needs_running_app": NEEDS_RUNNING_APP,
-    "executor": EXECUTOR,
 }
 
 # Label groups Nightshift fills. A label looks like "size:small".
@@ -105,6 +104,9 @@ CLARITY_LOW_BELOW = 1.5
 CLARITY_HIGH_FROM = 2.75
 RISK_MEDIUM_FROM = 0.3
 RISK_HIGH_FROM = 0.6
+# Refine-first gate (starting guesses, to tune): refine when clarity is low or the model
+# is unsure about the size.
+SIZE_CONFIDENCE_MIN = 0.4
 
 
 @dataclass
@@ -126,6 +128,8 @@ class Suggestion:
     labels: dict[str, str]  # group -> value, e.g. {"size": "small"}
     confidence: dict[str, float | None]  # group -> model confidence where available
     detail: dict[str, Any]  # raw numbers for logging and evals
+    disposition: str = "proceed"  # "proceed" or "refine"
+    refine_reasons: list[str] = field(default_factory=list)
 
 
 def clarity_value(score: float) -> str:
@@ -140,8 +144,18 @@ def risk_value(p: float) -> str:
     return "medium" if p >= RISK_MEDIUM_FROM else "low"
 
 
-def triage(issue: Issue, decider: Decider, budget_usd: float | None = None) -> Suggestion:
-    answers: dict[str, Answer] = decider.ask(issue.state(budget_usd), QUESTIONS)
+def triage(
+    issue: Issue,
+    decider: Decider,
+    budget_usd: float | None = None,
+    force_executor: bool = False,
+) -> Suggestion:
+    """Pass 1 classifies. Pass 2 picks a model, but only once the issue is clear enough.
+
+    Unclear issues get disposition "refine" and no executor: they should be improved and
+    clarified first, then triaged again. `force_executor` runs pass 2 regardless (for evals).
+    """
+    answers: dict[str, Answer] = decider.ask(issue.state(), QUESTIONS)
 
     risk_scores = {k: answers[k].noul or 0.0 for k in RISK_QUESTIONS}
     worst = max(risk_scores, key=lambda k: risk_scores[k])
@@ -151,22 +165,36 @@ def triage(issue: Issue, decider: Decider, budget_usd: float | None = None) -> S
         "risk": risk_value(risk_scores[worst]),
         "type": answers["type"].choice or "",
         "priority": answers["priority"].choice or "",
-        "executor": answers["executor"].choice or "",
     }
-    confidence = {
+    confidence: dict[str, float | None] = {
         "size": answers["size"].confidence,
         "clarity": answers["clarity"].confidence,
         "type": answers["type"].confidence,
         "priority": answers["priority"].confidence,
-        "executor": answers["executor"].confidence,
         "risk": None,
     }
-    detail = {
-        "executor_probabilities": answers["executor"].probabilities,
+    detail: dict[str, Any] = {
         "clarity_score": answers["clarity"].score,
         "risk": risk_scores,
         "risk_driver": worst,
         "needs_running_app": answers["needs_running_app"].noul,
         "size_probabilities": answers["size"].probabilities,
     }
-    return Suggestion(labels, confidence, detail)
+
+    reasons = []
+    if labels["clarity"] == "low":
+        reasons.append("clarity is low")
+    size_conf = answers["size"].confidence
+    if size_conf is not None and size_conf < SIZE_CONFIDENCE_MIN:
+        reasons.append(f"size confidence {size_conf:.2f} is below {SIZE_CONFIDENCE_MIN}")
+    disposition = "refine" if reasons else "proceed"
+
+    if disposition == "proceed" or force_executor:
+        assessment = {k: labels[k] for k in ("size", "risk", "clarity", "type")}
+        state = {**issue.state(budget_usd), "assessment": assessment}
+        pick = decider.ask(state, {"executor": EXECUTOR})["executor"]
+        labels["executor"] = pick.choice or ""
+        confidence["executor"] = pick.confidence
+        detail["executor_probabilities"] = pick.probabilities
+
+    return Suggestion(labels, confidence, detail, disposition, reasons)

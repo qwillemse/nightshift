@@ -21,7 +21,7 @@ def cmd_triage(args: argparse.Namespace) -> None:
     gh = Gh(args.repo)
     issue = gh.get_issue(args.issue)
     suggestion = triage(issue, jev_from_env())
-    print(json.dumps({"labels": suggestion.labels, "confidence": suggestion.confidence,
+    print(json.dumps({"disposition": suggestion.disposition, "refine_reasons": suggestion.refine_reasons, "labels": suggestion.labels, "confidence": suggestion.confidence,
                       "detail": suggestion.detail}, indent=2))  # fmt: skip
     if args.apply:
         store = Store(args.db)
