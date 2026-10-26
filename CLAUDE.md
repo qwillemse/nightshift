@@ -13,6 +13,8 @@ uv run pytest -m live        # live Jev test, needs TYPESAFE_API_KEY in .env
 uv run ruff check . && uv run ruff format .
 uv run nightshift eval evals/spike_issues.json            # score triage against labels
 uv run nightshift triage --repo owner/name --issue 1 [--apply]
+uv run nightshift models evals/recipe_issues.json [--budget 1]   # Jev's model picks vs table
+uv run nightshift refine --cases evals/recipe_issues.json --case 'recipe#3' --repo-path ../recipe  # dry run, prints only
 ```
 
 ## Layout
@@ -22,6 +24,9 @@ uv run nightshift triage --repo owner/name --issue 1 [--apply]
 - `src/nightshift/github.py`: `gh` wrapper; `apply_suggestion` never overwrites human labels
 - `src/nightshift/store.py`: SQLite log of suggestions, runs and human corrections
 - `src/nightshift/evals.py`: accuracy and calibration against labeled cases
+- `src/nightshift/llm.py`: text LLM backends (`AnthropicLLM`, `ClaudeCLI`, `FakeLLM`)
+- `src/nightshift/context.py`: gathers repo docs, tree and relevant files for a prompt
+- `src/nightshift/refine.py`: refine-and-ask step with quote-grounding and Jev invention check
 - `evals/`: labeled cases. `spike/`: the original throwaway Jev experiment.
 
 ## Rules

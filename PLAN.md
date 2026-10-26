@@ -125,6 +125,14 @@ implementing model chosen (second Jev call, which sees the classification and bu
 On the 30 recipe cases, 18 were sent to refine (almost all because of low clarity) and 12
 proceeded.
 
+**Implemented as a dry run (2026-10-26):** `nightshift refine` gathers the repo's docs, file
+tree and the files most related to the issue, asks a model for a structured result, and
+prints a markdown draft without touching GitHub. The no-invention rule is enforced in code:
+every acceptance criterion must quote the issue text, every code fact must quote a file the
+model was shown, and anything whose quote cannot be found is dropped and listed. Ideas go
+in a separate suggestions list. Jev then checks whether the improved text adds
+requirements. Backends: Anthropic API, or the logged-in `claude` CLI.
+
 When triage finds an issue unclear, a refine step runs before asking a human:
 
 1. An agent reads the relevant code, tests and docs and drafts what is missing: likely

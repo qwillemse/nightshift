@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from nightshift.decider import JevDecider
+from nightshift.llm import LLM, AnthropicLLM, ClaudeCLI
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,3 +32,21 @@ def jev_from_env() -> JevDecider:
         base_url=os.environ.get("JEV_BASE_URL", "https://api.typesafe.ai"),
         model=os.environ.get("JEV_MODEL", "jev-latest"),
     )
+
+
+DEFAULT_REFINE_MODEL = "claude-sonnet-5-5"
+
+
+def llm_from_env() -> LLM:
+    """Anthropic API when ANTHROPIC_API_KEY is set, otherwise the logged-in `claude` CLI.
+
+    Force one with NIGHTSHIFT_LLM=api or NIGHTSHIFT_LLM=cli.
+    """
+    load_env()
+    choice = os.environ.get("NIGHTSHIFT_LLM", "").lower()
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if choice == "api" or (choice != "cli" and key):
+        if not key:
+            raise SystemExit("NIGHTSHIFT_LLM=api but ANTHROPIC_API_KEY is not set")
+        return AnthropicLLM(api_key=key)
+    return ClaudeCLI()

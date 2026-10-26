@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from nightshift.config import jev_from_env
+from nightshift.config import DEFAULT_REFINE_MODEL, jev_from_env, llm_from_env
 from nightshift.evals import (
     compare_executors,
     format_executor_comparison,
@@ -13,8 +13,10 @@ from nightshift.evals import (
     run_eval,
 )
 from nightshift.github import Gh, apply_suggestion
+from nightshift.llm import LLMError
+from nightshift.refine import refine_issue, render_markdown
 from nightshift.store import Store
-from nightshift.triage import triage
+from nightshift.triage import Issue, triage
 
 
 def cmd_triage(args: argparse.Namespace) -> None:
@@ -50,6 +52,31 @@ def cmd_models(args: argparse.Namespace) -> None:
                 )
 
 
+def cmd_refine(args: argparse.Namespace) -> None:
+    """Dry run: prints the refinement for cases from a file. Never touches GitHub."""
+    cases = {c["id"]: c for c in load_cases(args.cases)}
+    llm, jev = llm_from_env(), jev_from_env()
+    for case_id in args.case:
+        case = cases[case_id]
+        others = [
+            (c["number"], c["title"])
+            for c in cases.values()
+            if c.get("on_github") and c.get("number") and c["id"] != case_id
+        ]
+        issue = Issue(case["title"], case["body"], number=case.get("number"))
+        try:
+            result = refine_issue(
+                issue, args.repo_path, llm, jev, model=args.model, other_issues=others
+            )
+        except LLMError as e:
+            raise SystemExit(
+                f"{e}\nLog in by running `claude` and typing /login, "
+                "or set ANTHROPIC_API_KEY in .env."
+            ) from None
+        print(render_markdown(result, issue))
+        print("\n" + "-" * 60 + "\n")
+
+
 def cmd_corrections(args: argparse.Namespace) -> None:
     issue = Gh(args.repo).get_issue(args.issue)
     found = Store(args.db).detect_corrections(args.repo, args.issue, issue.labels)
@@ -79,6 +106,13 @@ def main() -> None:
     p.add_argument("--budget", type=float, action="append", help="USD per issue; repeatable")
     p.add_argument("--rows", action="store_true", help="show every case")
     p.set_defaults(func=cmd_models)
+
+    p = sub.add_parser("refine", help="dry run: refine issues from a cases file, print only")
+    p.add_argument("--cases", required=True, help="cases JSON, e.g. evals/recipe_issues.json")
+    p.add_argument("--case", action="append", required=True, help="case id, repeatable")
+    p.add_argument("--repo-path", required=True, help="local checkout of the target repo")
+    p.add_argument("--model", default=DEFAULT_REFINE_MODEL)
+    p.set_defaults(func=cmd_refine)
 
     p = sub.add_parser("corrections", help="show labels a human changed after we suggested")
     p.add_argument("--repo", required=True)
