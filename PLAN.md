@@ -33,7 +33,22 @@ be tested or tuned with data, not a commitment.
 - Work backlog data is employer data: not used in public repos or third-party APIs.
 - Testbed is a separate repo: a recipe app (see Testbed).
 
-## Pipeline (outline)
+## Pipeline stages (Decided, owner's outline)
+
+1. **Read issues:** improve, classify, ask questions, split into smaller issues, create new
+   issues, decide which to implement.
+2. **Implement:** chosen by priority, complexity, budget and so on; may create new issues.
+3. **Test:** automatic testing, and for some issues manual-test instructions for a human
+   (maybe agent-run manual testing later); may create new issues.
+4. **Morning digest:** what changed, what needs testing, what issues need reviewing,
+   questions for business decisions, new issues, what is still to do.
+
+Rule for improving issues: **never invent.** Improvement may add what is found in the
+code and docs, tighten wording, and turn gaps into questions. It must not add features,
+requirements or acceptance criteria the owner did not ask for. Anything it would have to
+guess becomes a question, and added content is labeled as inferred from code or docs.
+
+## Pipeline detail (outline)
 
 ```
 issue → triage → plan → [needs-human?] → implement → verify → pre-PR check
@@ -111,8 +126,11 @@ raw ones. Risk to watch: the agent inventing requirements that sound plausible.
 
 - Tier names and what each tier means (trivial / small / medium / large).
 - Time and cost limits per tier. Start with generous placeholders, tighten from run logs.
-- Which model suits which tier (haiku / sonnet / opus). Start with a simple table;
-  let run logs show if it is wrong. Jev choosing the executor only after there is data.
+- Which model suits which tier. Start with a simple table (see below), let run logs show
+  if it is wrong. Jev choosing the executor only after there is data.
+  Starting table (from third-party Oct 2026 benchmark roundups, unverified):
+  trivial → claude-haiku-5-5, small/medium → claude-sonnet-5-5, large or retries →
+  claude-opus-5-5. Codex (OpenAI GPT-6 line) is the first alternative to compare.
 - Cross-model review (a different model reviews the diff). Add Codex as an executor/reviewer
   when the basics work.
 - Jev thresholds for "high confidence". Tune using the eval, not guesses.
