@@ -147,6 +147,17 @@ When triage finds an issue unclear, a refine step runs before asking a human:
 To measure: clarity before vs after, and whether refined issues succeed more often than
 raw ones. Risk to watch: the agent inventing requirements that sound plausible.
 
+## Shift dashboard (Decided: wanted; mechanism is a hypothesis)
+
+A UI to watch a shift as it runs: current stage (reading issues, refining, implementing,
+testing), progress such as 4/10 issues, and per-issue status, plus the morning digest.
+Also meant as a showcase: it is the easiest way to show what Nightshift does.
+
+Design consequence, decided now so it is not retrofitted: every stage writes structured
+events (shift id, issue, stage, status, timestamp, cost) to the run log. The dashboard only
+reads that log. Hypotheses: a small local web app that polls the log; a replay mode that
+plays back a recorded shift, so the public repo can demo it without a live run.
+
 ## Hypotheses to test (do not treat as fixed)
 
 - Tier names and what each tier means (trivial / small / medium / large).
@@ -247,7 +258,8 @@ included in the text Jev sees.
 2. Triage-only eval: how well does Jev match the labels?
 3. One simple tier end to end: issue in, draft PR out.
 4. Run contract, limits, watchdog, pre-PR check.
-5. Merge gates, auto-merge to `dev`, revert, overnight loop, digest.
+5. Merge gates, auto-merge to `dev`, revert, overnight loop, digest, and the shift event
+   log with a dashboard on top of it.
 6. Run logs → more executors, cross-model review, learned routing.
 7. Issue refinement, proposed issues and splits (human-approved).
 8. Running-app testing; README and write-up.
