@@ -307,7 +307,7 @@
   },
   {
     "id": "recipe-x1",
-    "number": null,
+    "number": 21,
     "title": "Plural matching breaks for words ending in -ie ('cookies' vs 'cookie')",
     "body": "## What\n\n`normalize_name` turns `ies` into `y`, which is right for 'berries' but wrong for words whose singular ends in `ie`. `normalize_name('cookies')` gives `cooky` while `normalize_name('cookie')` gives `cookie`, so a pantry with 'cookies' does not match a recipe that needs 'cookie' (same for chilies/chili, brownies, smoothies).\n\n## Acceptance criteria\n\n- [ ] `normalize_name('cookies') == normalize_name('cookie')`\n- [ ] Same for `chilies`/`chili`, `brownies`/`brownie`, `smoothies`/`smoothie`\n- [ ] `berries`, `cherries` and `strawberries` still normalize to the `-y` singular\n- [ ] Regression tests added in `tests/test_inventory.py`\n\n## Notes\n\n- `src/pantry_chef/inventory.py` (`_singularize`).\n- Keep it a small rule change, not a new dependency.\n- Tests required; they must not call the real LLM (see CLAUDE.md).\n- `make check` must pass.\n",
     "expected": {
@@ -318,11 +318,11 @@
     },
     "flags": {},
     "notes": "Verified against v1.0 code",
-    "on_github": false
+    "on_github": true
   },
   {
     "id": "recipe-x2",
-    "number": null,
+    "number": 22,
     "title": "Pantry parsing mangles '2% milk' and ranges like '1-2 onions'",
     "body": "## What\n\n`parse_inventory('2% milk')` returns `['% milk']` and `parse_inventory('1-2 onions')` returns `['-2 onion']`, because the leading-number pattern strips only the digits.\n\n## Acceptance criteria\n\n- [ ] `parse_inventory('2% milk') == ['2% milk']` (percent is part of the name)\n- [ ] `parse_inventory('1-2 onions') == ['onion']`\n- [ ] Existing amount handling ('2 onions', '500 g rice', '1/2 cup flour') is unchanged\n- [ ] Tests added in `tests/test_inventory.py`\n\n## Notes\n\n- `src/pantry_chef/inventory.py` (`_QUANTITY_PREFIX`).\n- Tests required; they must not call the real LLM (see CLAUDE.md).\n- `make check` must pass.\n",
     "expected": {
@@ -333,11 +333,11 @@
     },
     "flags": {},
     "notes": "Verified against v1.0 code",
-    "on_github": false
+    "on_github": true
   },
   {
     "id": "recipe-x3",
-    "number": null,
+    "number": 23,
     "title": "Shopping list shows ugly decimals like 0.333333 for fractional amounts",
     "body": "## What\n\n`format_amount` uses `:g`, so one third of a cup renders as `0.333333 cup`. Show common fractions instead (1/4, 1/3, 1/2, 2/3, 3/4) and round everything else to at most 2 decimals.\n\n## Acceptance criteria\n\n- [ ] `format_amount(0.5, 'cup') == '1/2 cup'` and `format_amount(1/3, 'cup') == '1/3 cup'`\n- [ ] `format_amount(1.5, '') == '1.5'`, `format_amount(200, 'g') == '200 g'`\n- [ ] `format_amount(0.123456, 'kg') == '0.12 kg'`\n- [ ] Tests added in `tests/test_shopping.py`\n\n## Notes\n\n- `src/pantry_chef/shopping.py` (`format_amount`). Keep it pure (no I/O).\n- Tests required; they must not call the real LLM (see CLAUDE.md).\n- `make check` must pass.\n",
     "expected": {
@@ -348,11 +348,11 @@
     },
     "flags": {},
     "notes": "",
-    "on_github": false
+    "on_github": true
   },
   {
     "id": "recipe-x4",
-    "number": null,
+    "number": 24,
     "title": "Include the app version in the /healthz response",
     "body": "## What\n\n`GET /healthz` returns `{\"status\": \"ok\"}`. Add the version so a deploy can be checked.\n\n## Acceptance criteria\n\n- [ ] `GET /healthz` returns `{\"status\": \"ok\", \"version\": \"1.0.0\"}` using `pantry_chef.__version__`\n- [ ] Existing healthz test updated\n\n## Notes\n\n- `src/pantry_chef/web/app.py`.\n- Tests required; they must not call the real LLM (see CLAUDE.md).\n- `make check` must pass.\n",
     "expected": {
@@ -363,7 +363,7 @@
     },
     "flags": {},
     "notes": "",
-    "on_github": false
+    "on_github": true
   },
   {
     "id": "recipe-x5",

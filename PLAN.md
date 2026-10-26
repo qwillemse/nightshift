@@ -68,6 +68,29 @@ issue → triage → plan → [needs-human?] → implement → verify → pre-PR
 - **Digest:** merged (with revert commands), open PRs and why, needs-human questions,
   failures/reverts, proposed issues and splits awaiting approval.
 
+## Question loop (behaviour decided; mechanism is a hypothesis)
+
+Most raw issues are expected to end up as questions for a human. That is fine as long as
+the loop ends with an issue that is ready to implement on the next shift:
+
+1. **Ask:** Nightshift improves the issue as far as it can (see Refinement) and asks the
+   specific questions it cannot answer, including business decisions (naming, which diets,
+   which model, pricing).
+2. **Answer:** the human replies in the morning.
+3. **Rewrite:** the next run folds the answers into the issue (What / Acceptance criteria /
+   Notes template), Jev re-scores clarity, and if it is clear the issue becomes `ns:ready`.
+4. **Implement:** the following shift picks it up.
+
+The morning digest carries three kinds of items the human can act on:
+
+- **Questions** on vague or decision-dependent issues, with Nightshift's proposed rewrite.
+- **Proposed issues** found while working (see issue discovery): keep / don't keep / alter.
+- **Proposed splits and rechecks** (possible duplicates, obsolete or won't-do suggestions).
+
+Nothing is closed or created without the human's choice. Mechanism to try first (hypothesis):
+the digest is a GitHub issue per night with a checklist and one comment thread per item,
+which also works from a phone. Alternatives: labels or reactions on each item.
+
 ## Refinement (outline; details are hypotheses)
 
 When triage finds an issue unclear, a refine step runs before asking a human:
