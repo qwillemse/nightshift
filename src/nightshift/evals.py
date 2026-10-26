@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from nightshift.decider import Decider
-from nightshift.triage import Issue, Suggestion, triage
+from nightshift.triage import BASELINE_EXECUTOR, EXECUTORS, Issue, Suggestion, triage
 
 BINS = [(0.0, 0.5), (0.5, 0.8), (0.8, 1.0001)]
 
@@ -83,3 +83,55 @@ def run_eval(cases: list[dict], decider: Decider) -> Report:
             if conf is not None:
                 report.calibration.append((conf, ok))
     return report
+
+
+@dataclass
+class ExecutorRow:
+    case: str
+    expected_size: str
+    baseline: str
+    pick: str
+    confidence: float | None
+
+
+def compare_executors(
+    cases: list[dict], decider: Decider, budget_usd: float | None = None
+) -> list[ExecutorRow]:
+    """Jev's model pick vs the static table, using the *expected* size for the baseline.
+
+    There is no ground truth for which model is best; this only shows how Jev's intuition
+    relates to the table. Real evidence needs run logs (outcome, cost, retries).
+    """
+    rows = []
+    for case in cases:
+        suggestion = triage(Issue(case["title"], case.get("body", "")), decider, budget_usd)
+        size = case["expected"]["size"]
+        rows.append(
+            ExecutorRow(
+                case["id"],
+                size,
+                BASELINE_EXECUTOR[size],
+                suggestion.labels["executor"],
+                suggestion.confidence.get("executor"),
+            )
+        )
+    return rows
+
+
+def format_executor_comparison(title: str, rows: list[ExecutorRow]) -> str:
+    rank = {name: i for i, name in enumerate(EXECUTORS)}  # cheapest -> strongest
+    agree = sum(r.pick == r.baseline for r in rows)
+    cheaper = sum(rank[r.pick] < rank[r.baseline] for r in rows)
+    stronger = sum(rank[r.pick] > rank[r.baseline] for r in rows)
+    lines = [
+        f"== {title}",
+        f"agrees with table {agree}/{len(rows)}, cheaper {cheaper}, stronger {stronger}",
+    ]
+    for size in ("trivial", "small", "medium", "large"):
+        group = [r for r in rows if r.expected_size == size]
+        if group:
+            counts = {m: sum(r.pick == m for r in group) for m in EXECUTORS}
+            picks = ", ".join(f"{m.replace('claude-', '')} {n}" for m, n in counts.items() if n)
+            base = BASELINE_EXECUTOR[size].replace("claude-", "")
+            lines.append(f"  {size:<8} n={len(group):<2} table={base:<12} jev: {picks}")
+    return "\n".join(lines)

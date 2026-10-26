@@ -13,6 +13,7 @@ def make_answers(
     priority: str = "medium",
     risks: dict[str, float] | None = None,
     needs_running_app: float = 0.1,
+    executor: str = "claude-sonnet-5-5",
 ) -> dict[str, Answer]:
     risks = risks or {}
     answers = {
@@ -23,6 +24,9 @@ def make_answers(
             "choice", choice=priority, probabilities={priority: 0.9}, confidence=0.9
         ),
         "needs_running_app": Answer("noul", noul=needs_running_app),
+        "executor": Answer(
+            "choice", choice=executor, probabilities={executor: 0.8}, confidence=0.8
+        ),
     }
     for key in QUESTIONS:
         if key.startswith("risk_"):

@@ -169,6 +169,15 @@ raw ones. Risk to watch: the agent inventing requirements that sound plausible.
   arguable labels, one with low confidence), clarity 4/5, risk 4/5. The one real miss:
   an issue with a DB migration got risk 0.32. Five issues is too few to conclude anything.
 - Keep Jev behind a small interface (`ask(state, questions)`) so it can be swapped.
+- Model-pick experiment (2026-10-26, `nightshift models`): Jev picks the executor from
+  model descriptions plus the issue and an optional `budget_usd`. On the 30 recipe cases it
+  chose Haiku for 24 to 28, never Opus, and a bigger budget did not make it choose stronger
+  models. For the two large and high-risk cases (SQLite, accounts) it chose Sonnet with
+  0.8+ confidence, against its own description of Opus. There is no ground truth for
+  "best model", so this only shows that the intuition-only pick looks biased cheap.
+  Plan: run it in shadow mode (log its pick, use the table) until run logs show whether
+  its picks work, and try a table keyed on Jev's size and risk labels (e.g. high risk
+  bumps up one model).
 
 ## Testbed
 

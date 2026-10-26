@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from nightshift.decider import FakeDecider
-from nightshift.evals import run_eval
+from nightshift.evals import compare_executors, format_executor_comparison, run_eval
 
 from .conftest import make_answers
 
@@ -26,3 +26,15 @@ def test_calibration_table_bins_by_confidence():
     assert rows and rows[0][1] == 2  # both size answers have confidence 0.9, one is right
     assert rows[0][3] == 0.5
     assert "misses:" in report.format()
+
+
+def test_executor_comparison_against_table():
+    decider = FakeDecider(make_answers(executor="claude-opus-5-5"))
+    rows = compare_executors(CASES, decider, budget_usd=1.0)
+    # table: small -> sonnet, large -> opus; Jev picks opus for both
+    assert [(r.baseline, r.pick) for r in rows] == [
+        ("claude-sonnet-5-5", "claude-opus-5-5"),
+        ("claude-opus-5-5", "claude-opus-5-5"),
+    ]
+    text = format_executor_comparison("test", rows)
+    assert "agrees with table 1/2, cheaper 0, stronger 1" in text

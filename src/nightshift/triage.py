@@ -63,6 +63,31 @@ NEEDS_RUNNING_APP = YesNo(
     "beyond automated tests?"
 )
 
+# Coding models Jev can choose between. Descriptions are intuition only, not measured
+# performance; relative prices are from third-party sources (Sonnet $2/$10, Opus $4/$20
+# per million tokens). Replace with run-log history once it exists.
+EXECUTORS = {
+    "claude-haiku-5-5": "Cheapest and fastest. Good for small, well-specified changes; "
+    "weaker on large or ambiguous work.",
+    "claude-sonnet-5-5": "Mid price, strong all-rounder for everyday features and bug fixes "
+    "across a few files.",
+    "claude-opus-5-5": "Most capable, about twice Sonnet's price. Best for large, risky or "
+    "cross-cutting changes where mistakes are costly.",
+}
+EXECUTOR = Choice(
+    "Which model should implement this issue? Weigh the difficulty and size of the work "
+    "against the budget in the state (budget_usd, if present): prefer a cheaper model when "
+    "the work is easy or the budget is tight, a stronger one when the work is hard.",
+    EXECUTORS,
+)
+# Static baseline: the table Jev's picks are compared against.
+BASELINE_EXECUTOR = {
+    "trivial": "claude-haiku-5-5",
+    "small": "claude-sonnet-5-5",
+    "medium": "claude-sonnet-5-5",
+    "large": "claude-opus-5-5",
+}
+
 QUESTIONS: dict[str, Question] = {
     "size": SIZE,
     "clarity": CLARITY,
@@ -70,6 +95,7 @@ QUESTIONS: dict[str, Question] = {
     "priority": PRIORITY,
     **RISK_QUESTIONS,
     "needs_running_app": NEEDS_RUNNING_APP,
+    "executor": EXECUTOR,
 }
 
 # Label groups Nightshift fills. A label looks like "size:small".
@@ -88,8 +114,11 @@ class Issue:
     number: int | None = None
     labels: list[str] = field(default_factory=list)
 
-    def state(self) -> dict[str, str]:
-        return {"title": self.title, "body": self.body}
+    def state(self, budget_usd: float | None = None) -> dict[str, Any]:
+        state: dict[str, Any] = {"title": self.title, "body": self.body}
+        if budget_usd is not None:
+            state["budget_usd"] = budget_usd
+        return state
 
 
 @dataclass
@@ -111,8 +140,8 @@ def risk_value(p: float) -> str:
     return "medium" if p >= RISK_MEDIUM_FROM else "low"
 
 
-def triage(issue: Issue, decider: Decider) -> Suggestion:
-    answers: dict[str, Answer] = decider.ask(issue.state(), QUESTIONS)
+def triage(issue: Issue, decider: Decider, budget_usd: float | None = None) -> Suggestion:
+    answers: dict[str, Answer] = decider.ask(issue.state(budget_usd), QUESTIONS)
 
     risk_scores = {k: answers[k].noul or 0.0 for k in RISK_QUESTIONS}
     worst = max(risk_scores, key=lambda k: risk_scores[k])
@@ -122,15 +151,18 @@ def triage(issue: Issue, decider: Decider) -> Suggestion:
         "risk": risk_value(risk_scores[worst]),
         "type": answers["type"].choice or "",
         "priority": answers["priority"].choice or "",
+        "executor": answers["executor"].choice or "",
     }
     confidence = {
         "size": answers["size"].confidence,
         "clarity": answers["clarity"].confidence,
         "type": answers["type"].confidence,
         "priority": answers["priority"].confidence,
+        "executor": answers["executor"].confidence,
         "risk": None,
     }
     detail = {
+        "executor_probabilities": answers["executor"].probabilities,
         "clarity_score": answers["clarity"].score,
         "risk": risk_scores,
         "risk_driver": worst,
