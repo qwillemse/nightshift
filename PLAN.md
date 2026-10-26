@@ -133,6 +133,17 @@ model was shown, and anything whose quote cannot be found is dropped and listed.
 in a separate suggestions list. Jev then checks whether the improved text adds
 requirements. Backends: Anthropic API, or the logged-in `claude` CLI.
 
+**First real dry run (2026-10-26, Sonnet 5.5, recipe#2, #3, #9, x8):** every quote verified
+(nothing dropped), questions were specific with business decisions first, #9 was correctly
+flagged as possibly already done, and related issues (#1, #23) were cross-referenced.
+Problems found: (1) context selection by keyword missed `generators/anthropic_gen.py` for
+x8, so the model suggested adding a variety instruction that the real prompt already has;
+(2) 3 to 4 blocking questions per issue is a lot to put on the owner; (3) Jev's invention
+score looked noisy (0.46 on a mild case, 0.13 on another) and is not yet validated;
+(4) cost per call is not reported yet. Fixes planned: let the model ask for files it needs
+and re-run once, cap the number of blocking questions, validate the invention check on
+deliberately inventive outputs, report tokens and cost.
+
 When triage finds an issue unclear, a refine step runs before asking a human:
 
 1. An agent reads the relevant code, tests and docs and drafts what is missing: likely
