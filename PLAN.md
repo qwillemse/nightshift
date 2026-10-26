@@ -129,6 +129,11 @@ on the issue, with a hidden marker so Nightshift can find it later. The issue bo
 edited. The owner answers in replies; once answered, Nightshift posts a final "ready"
 spec comment, and the implementing agent reads the issue plus that spec.
 
+**Comment length (owner feedback, 2026-10-26):** the first posted comment was too long. Comments now
+show the request, the questions (short, with options and defaults) and the criteria on top;
+the reasons, code facts, decisions made, suggestions and checks are folded into collapsible
+sections. A flagged invention check is never hidden in a fold.
+
 **Review rounds and the comment thread (Decided 2026-10-26, implemented):** reviewing an issue
 always takes its comments into account. Each refinement is a numbered round (hidden marker
 `round=N`). The owner answers in the next comment; GitHub issue comments are flat, so a

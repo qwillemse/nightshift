@@ -366,3 +366,27 @@ def test_round_two_markdown_shows_answers_and_still_open(tmp_path):
     md = render_markdown(result, ISSUE)
     assert "(round 2)" in md and "**Answered so far (your words)**" in md
     assert "**Still open**" in md and "**Questions for you**" not in md
+
+
+def visible_part(md: str) -> str:
+    import re
+
+    return re.sub(r"<details>.*?</details>", "", md, flags=re.S)
+
+
+def test_supporting_detail_is_folded_away(tmp_path):
+    result, _, _ = refine(tmp_path)
+    md = render_markdown(result, ISSUE)
+    shown = visible_part(md)
+    assert md.count("<details>") == md.count("</details>") >= 3
+    # on top: request, questions, criteria; folded: code facts, why, suggestions, checks
+    assert "Which max servings?" in shown and "User can change servings" in shown
+    assert "Recipe has a servings field" not in shown and "Add a half-serving step" not in shown
+    assert "Invention check" not in shown and "Why I am asking" in md
+    assert len(shown) < len(md)
+
+
+def test_a_flagged_check_is_not_hidden_in_the_fold(tmp_path):
+    result, _, _ = refine(tmp_path, jev_p=0.9)
+    shown = visible_part(render_markdown(result, ISSUE))
+    assert "Check needed" in shown
