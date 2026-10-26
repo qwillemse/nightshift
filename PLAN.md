@@ -153,6 +153,10 @@ A UI to watch a shift as it runs: current stage (reading issues, refining, imple
 testing), progress such as 4/10 issues, and per-issue status, plus the morning digest.
 Also meant as a showcase: it is the easiest way to show what Nightshift does.
 
+The morning digest lives in the dashboard too, so everything is in one place. Later the
+digest and its questions can also be pushed to other places (GitHub issue comments, Slack,
+email) as extra delivery channels; the dashboard stays the source of truth.
+
 Design consequence, decided now so it is not retrofitted: every stage writes structured
 events (shift id, issue, stage, status, timestamp, cost) to the run log. The dashboard only
 reads that log. Hypotheses: a small local web app that polls the log; a replay mode that
@@ -189,8 +193,11 @@ plays back a recorded shift, so the public repo can demo it without a live run.
   CLI that runs from any machine with git, `gh` and the agent CLI. First scheduled home:
   a GitHub Actions cron in the target repo (nothing to keep on; GitHub is already the
   input and output; state kept in labels, comments and a data branch). Alternatives if
-  Actions limits bite: a Railway cron service or the Pi. Unattended runs need an API key
-  stored as a repo secret (per-token billing), to be checked against current terms.
+  Actions limits bite: a Railway cron service or the Pi. Unattended runs need model
+  access. Locally an Anthropic API key in `.env` is simplest. In GitHub Actions, workload
+  identity federation (short-lived OIDC tokens, no stored key) is the alternative to a repo
+  secret; it needs a Console admin to set up and is only worth it once we run there.
+  Per-token billing either way; check current terms for subscription use.
 
 ## Jev notes
 
