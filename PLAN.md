@@ -41,6 +41,14 @@ issue → triage → plan → [needs-human?] → implement → verify → pre-PR
 ```
 
 - **Triage (Jev):** tier, clarity, risk, duplicate?, needs running-app testing?
+  Triage also ends in a disposition, one of: proceed, refine (improve the issue first),
+  ask human, recheck, or suggest won't-do. Nightshift only suggests the last two: a human
+  confirms before anything is closed. Examples: an issue that looks already done or
+  obsolete (recipe #9) is `recheck`; a duplicate is `recheck` pointing at the original.
+- **Business decisions:** when an issue hinges on a product or business choice the issue
+  doesn't make (a new name, which diets, which model, pricing), Nightshift asks the human
+  that specific question instead of guessing. Jev Yes/No: "does this need a decision the
+  issue doesn't make?" Many raw one-line issues are expected to end up here, which is fine.
 - **Plan:** produces a per-issue "run contract": tier, executor, test strategy, scope
   (files the change may touch), time/cost limits, stop conditions.
 - **Implement / verify:** coding agent in its own git worktree and branch; tests chosen
