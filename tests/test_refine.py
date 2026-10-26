@@ -53,10 +53,17 @@ MODEL_REPLY = {
 }
 
 
+JEV_KEYS = ["overall", "request"] + [f"criterion_{i}" for i in range(1, 9)]
+
+
+def jev_answers(p: float) -> dict[str, Answer]:
+    return {key: Answer("noul", noul=p) for key in JEV_KEYS}
+
+
 def refine(tmp_path, reply=MODEL_REPLY, jev_p=0.1):
     repo = make_repo(tmp_path, FILES)
     llm = FakeLLM(json.dumps(reply))
-    decider = FakeDecider({"adds_requirements": Answer("noul", noul=jev_p)})
+    decider = FakeDecider(jev_answers(jev_p))
     result = refine_issue(
         ISSUE, repo, llm, decider, model="claude-sonnet-5-5", other_issues=[(7, "Add servings")]
     )
@@ -197,3 +204,62 @@ def test_self_made_decisions_are_listed_for_review(tmp_path):
     md = render_markdown(result, ISSUE)
     assert "Decisions Nightshift made itself" in md and "Round amounts to 1 decimal" in md
     assert "Round amounts" not in "\n".join(c.text for c in result.criteria)
+
+
+INVENTED = {"text": "INVENTED rounding rule", "quote": "change amount of servings"}
+
+
+def revise_setup(tmp_path, jev_always=None):
+    """First model reply has an invented criterion, the second is clean."""
+    repo = make_repo(tmp_path, FILES)
+    bad = {**MODEL_REPLY, "acceptance_criteria": [MODEL_REPLY["acceptance_criteria"][0], INVENTED]}
+    replies = iter([json.dumps(bad), json.dumps(MODEL_REPLY)])
+    llm = FakeLLM(lambda system, user: next(replies))
+
+    def jev(state):
+        bad_text = any("INVENTED" in t for t in state["statements"].values())
+        p = jev_always if jev_always is not None else (0.9 if bad_text else 0.1)
+        return jev_answers(p) | {"criterion_2": Answer("noul", noul=0.95 if bad_text else 0.1)}
+
+    return repo, llm, FakeDecider(jev)
+
+
+def test_flagged_invention_triggers_one_revise_pass_with_feedback(tmp_path):
+    repo, llm, decider = revise_setup(tmp_path)
+    result = refine_issue(ISSUE, repo, llm, decider, model="m")
+    assert len(llm.calls) == 2
+    revise_user = llm.calls[1][1]
+    assert "REVISE" in revise_user and "YOUR PREVIOUS ANSWER" in revise_user
+    assert 'criterion_2: "INVENTED rounding rule"' in revise_user
+    assert result.revised and result.invention_before == pytest.approx(0.9)
+    assert not result.invention_flagged
+    assert all("INVENTED" not in c.text for c in result.criteria)
+    assert "(after one revise pass; was 0.90)" in render_markdown(result, ISSUE)
+
+
+def test_still_flagged_after_revise_is_shown_flagged(tmp_path):
+    repo, llm, decider = revise_setup(tmp_path, jev_always=0.9)
+    result = refine_issue(ISSUE, repo, llm, decider, model="m")
+    assert len(llm.calls) == 2  # exactly one revise pass
+    assert result.revised and result.invention_flagged
+    md = render_markdown(result, ISSUE)
+    assert "STILL FLAGGED" in md and "(score 0.90)" in md
+
+
+def test_no_revise_when_not_flagged_or_when_disabled(tmp_path):
+    result, llm, _ = refine(tmp_path, jev_p=0.1)
+    assert len(llm.calls) == 1 and not result.revised
+
+    repo, llm, decider = revise_setup(tmp_path / "off")
+    result = refine_issue(ISSUE, repo, llm, decider, model="m", revise=False)
+    assert len(llm.calls) == 1 and not result.revised and result.invention_flagged
+
+
+def test_revise_keeps_first_answer_if_revision_is_unreadable(tmp_path):
+    repo, _, decider = revise_setup(tmp_path)
+    bad = json.dumps({**MODEL_REPLY, "acceptance_criteria": [INVENTED]})
+    replies = iter([bad, "not json at all"])
+    llm = FakeLLM(lambda system, user: next(replies))
+    result = refine_issue(ISSUE, repo, llm, decider, model="m")
+    assert not result.revised and result.invention_flagged
+    assert [c.text for c in result.criteria] == ["INVENTED rounding rule"]

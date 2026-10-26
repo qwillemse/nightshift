@@ -106,6 +106,16 @@ the loop ends with an issue that is ready to implement on the next shift:
    Notes template), Jev re-scores clarity, and if it is clear the issue becomes `ns:ready`.
 4. **Implement:** the following shift picks it up.
 
+**Revise pass (decided and implemented 2026-10-26):** Jev now scores each statement (the
+restated request and every criterion) as well as the whole. If the total is flagged, the
+model gets one revise pass that names the flagged statements and asks it to remove them,
+restate only what the issue says, or turn them into questions. It is checked again; if it
+is still flagged, it is shown as flagged. Tried on a deliberately inventive first answer
+for the rename issue ("wherever it is user-facing", "package keeps its name", "check for
+trademark conflicts"): all three scored 0.92 to 0.96 (total 0.97); after one revise pass the
+total was 0.27, one faithful criterion remained, and the scope claim had become a question
+("Which places should the rename cover?").
+
 **Question policy (Decided 2026-10-26):**
 
 - No cap on the number of questions, and no cap on blocking ones. Asking beats guessing:

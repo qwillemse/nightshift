@@ -102,6 +102,10 @@ class RefineResult:
     duplicate_of: list[int] = field(default_factory=list)
     dropped: list[tuple[str, str, str]] = field(default_factory=list)  # (kind, text, reason)
     invention_p: float | None = None
+    invention_items: dict[str, float] = field(default_factory=dict)
+    invention_statements: dict[str, str] = field(default_factory=dict)
+    invention_before: float | None = None
+    revised: bool = False
     model: str = ""
     cost_usd: float | None = None
     files_shown: list[str] = field(default_factory=list)
@@ -224,16 +228,61 @@ def improved_text(result: RefineResult) -> str:
     return "\n".join(lines)
 
 
-def invention_check(decider: Decider, issue: Issue, result: RefineResult) -> float:
-    question = YesNo(
-        "Does the improved text add any requirement, feature, behaviour or acceptance criterion "
-        "that the original issue does not state?"
-    )
+def invention_check(
+    decider: Decider, issue: Issue, result: RefineResult
+) -> tuple[float, dict[str, float], dict[str, str]]:
+    """Overall score plus a score per statement (request, each criterion). Higher = more invented."""
+    statements: dict[str, str] = {}
+    if result.understood_request:
+        statements["request"] = result.understood_request
+    for i, c in enumerate(result.criteria, 1):
+        statements[f"criterion_{i}"] = c.text
+    questions: dict[str, YesNo] = {
+        "overall": YesNo(
+            "Does the improved text add any requirement, feature, behaviour or acceptance "
+            "criterion that the original issue does not state?"
+        )
+    }
+    for key in statements:
+        questions[key] = YesNo(
+            f"Does statements.{key} add any requirement, feature, behaviour or restriction "
+            "that the original issue does not state?"
+        )
     state = {
         "original": {"title": issue.title, "body": issue.body},
         "improved": improved_text(result),
+        "statements": statements,
     }
-    return decider.ask(state, {"adds_requirements": question})["adds_requirements"].noul or 0.0
+    answers = decider.ask(state, questions)
+    items = {key: answers[key].noul or 0.0 for key in statements}
+    return answers["overall"].noul or 0.0, items, statements
+
+
+def flagged_statements(result: RefineResult) -> list[tuple[str, str, float]]:
+    """Statements the checker scored as adding requirements; all of them if only the total is high."""
+    flagged = [
+        (key, result.invention_statements[key], p)
+        for key, p in result.invention_items.items()
+        if p >= INVENTION_FLAG_FROM
+    ]
+    if not flagged:
+        flagged = [
+            (key, text, result.invention_items.get(key, 0.0))
+            for key, text in result.invention_statements.items()
+        ]
+    return flagged
+
+
+def revise_prompt(base_user: str, previous_raw: str, flagged: list[tuple[str, str, float]]) -> str:
+    lines = "\n".join(f'- {key}: "{text}" (checker score {p:.2f})' for key, text, p in flagged)
+    return (
+        f"{base_user}\n\nYOUR PREVIOUS ANSWER\n{previous_raw}\n\nREVISE\n"
+        "An independent checker judged that these statements add requirements, features, "
+        f"behaviours or restrictions that the issue does not state:\n{lines}\n"
+        "Revise your answer. Remove each flagged statement, or rewrite it so that it only "
+        "restates what the issue says; anything that needs a decision becomes a question. Keep "
+        "what was fine. Return the full JSON object again."
+    )
 
 
 def build_user_prompt(issue: Issue, ctx: Context, requested: list[str] | None = None) -> str:
@@ -254,6 +303,31 @@ def build_user_prompt(issue: Issue, ctx: Context, requested: list[str] | None = 
 MAX_FILES_WANTED = 6
 
 
+class _Usage:
+    def __init__(self) -> None:
+        self.tokens_in = 0
+        self.tokens_out = 0
+        self.cost: float | None = 0.0
+
+    def add(self, llm: LLM) -> None:
+        usage = getattr(llm, "last_usage", {}) or {}
+        self.tokens_in += usage.get("input_tokens", 0)
+        self.tokens_out += usage.get("output_tokens", 0)
+        call_cost = llm.last_cost_usd
+        self.cost = None if (self.cost is None or call_cost is None) else self.cost + call_cost
+
+
+def _checked(result: RefineResult, issue: Issue, decider: Decider | None) -> RefineResult:
+    if decider is not None:
+        p, items, statements = invention_check(decider, issue, result)
+        result.invention_p, result.invention_items, result.invention_statements = (
+            p,
+            items,
+            statements,
+        )
+    return result
+
+
 def refine_issue(
     issue: Issue,
     repo_path: str | Path,
@@ -262,20 +336,17 @@ def refine_issue(
     *,
     model: str,
     other_issues: list[tuple[int, str]] | None = None,
+    revise: bool = True,
 ) -> RefineResult:
-    """One pass, plus one more if the model asks for files it was not shown."""
+    """One pass, one more if the model asks for files, and one revise pass if Jev flags inventions."""
     known = {n for n, _ in other_issues or []}
     ctx = gather_context(repo_path, issue.title, issue.body, other_issues)
     requested: list[str] = []
-    tokens_in = tokens_out = 0
-    cost: float | None = 0.0
+    usage = _Usage()
     for round_no in (1, 2):
-        raw = llm.complete(SYSTEM, build_user_prompt(issue, ctx, requested), model=model)
-        usage = getattr(llm, "last_usage", {}) or {}
-        tokens_in += usage.get("input_tokens", 0)
-        tokens_out += usage.get("output_tokens", 0)
-        call_cost = llm.last_cost_usd
-        cost = None if (cost is None or call_cost is None) else cost + call_cost
+        user = build_user_prompt(issue, ctx, requested)
+        raw = llm.complete(SYSTEM, user, model=model)
+        usage.add(llm)
         data = parse_json(raw)
         wanted = [
             f
@@ -288,15 +359,28 @@ def refine_issue(
         ctx = gather_context(
             repo_path, issue.title, issue.body, other_issues, extra_files=requested
         )
-    result = ground(data, issue, ctx, known)
+    result = _checked(ground(data, issue, ctx, known), issue, decider)
+
+    if revise and decider is not None and result.invention_flagged:
+        first_p = result.invention_p
+        raw2 = llm.complete(
+            SYSTEM, revise_prompt(user, raw, flagged_statements(result)), model=model
+        )
+        usage.add(llm)
+        try:
+            revised = _checked(ground(parse_json(raw2), issue, ctx, known), issue, decider)
+        except RefineError:
+            revised = None  # keep the first answer, still flagged
+        if revised is not None:
+            revised.revised, revised.invention_before = True, first_p
+            result = revised
+
     result.model = model
-    result.cost_usd = cost
+    result.cost_usd = usage.cost
     result.files_shown = ctx.files_used
     result.files_requested = requested
     result.rounds = round_no
-    result.tokens_in, result.tokens_out = tokens_in, tokens_out
-    if decider is not None:
-        result.invention_p = invention_check(decider, issue, result)
+    result.tokens_in, result.tokens_out = usage.tokens_in, usage.tokens_out
     return result
 
 
@@ -354,10 +438,20 @@ def render_markdown(result: RefineResult, issue: Issue) -> str:
     if result.invention_p is None:
         out.append("- Invention check (Jev): not run")
     else:
-        verdict = "FLAGGED, review the criteria" if result.invention_flagged else "ok"
-        out.append(
+        verdict = "STILL FLAGGED, review the criteria" if result.invention_flagged else "ok"
+        if not result.revised and result.invention_flagged:
+            verdict = "FLAGGED, review the criteria"
+        line = (
             f"- Invention check (Jev): p(adds requirements) = {result.invention_p:.2f}, {verdict}"
         )
+        if result.revised and result.invention_before is not None:
+            line += f" (after one revise pass; was {result.invention_before:.2f})"
+        out.append(line)
+        if result.invention_flagged:
+            out += [
+                f'  - {key}: "{text[:100]}" (score {p:.2f})'
+                for key, text, p in flagged_statements(result)
+            ]
     if result.dropped:
         out.append(f"- Dropped because they could not be verified: {len(result.dropped)}")
         out += [f"  - {kind}: {text[:90]} ({reason})" for kind, text, reason in result.dropped]
