@@ -129,6 +129,14 @@ on the issue, with a hidden marker so Nightshift can find it later. The issue bo
 edited. The owner answers in replies; once answered, Nightshift posts a final "ready"
 spec comment, and the implementing agent reads the issue plus that spec.
 
+**Cost and time (owner wants these low):** a refinement costs about $0.11 for round 1 and
+$0.13 to $0.21 for round 2. The revise pass now runs only when Jev is clearly sure (0.7+;
+borderline 0.5 to 0.7 is shown, not revised) and is lean (no repo context re-sent): round 2
+on #3 went from $0.21 to $0.13. Ideas to try, with measurement: prompt caching for the repo
+context shared across issues in one shift; an "ask first" mode that sends only docs and the
+file tree and returns just the questions, with the full code-aware refinement after the
+owner has answered; a cheaper model for tiny issues.
+
 **Comment length (owner feedback, 2026-10-26):** the first posted comment was too long. Comments now
 show the request, the questions (short, with options and defaults) and the criteria on top;
 the reasons, code facts, decisions made, suggestions and checks are folded into collapsible

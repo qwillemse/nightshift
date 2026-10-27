@@ -364,7 +364,7 @@ def test_round_two_markdown_shows_answers_and_still_open(tmp_path):
         ISSUE, repo, FakeLLM(json.dumps(reply)), None, model="m", thread=thread_with_answer()
     )
     md = render_markdown(result, ISSUE)
-    assert "(round 2)" in md and "**Answered so far (your words)**" in md
+    assert "(round 2)" in md and "Your answers, recorded (1)" in md
     assert "**Still open**" in md and "**Questions for you**" not in md
 
 
@@ -390,3 +390,32 @@ def test_a_flagged_check_is_not_hidden_in_the_fold(tmp_path):
     result, _, _ = refine(tmp_path, jev_p=0.9)
     shown = visible_part(render_markdown(result, ISSUE))
     assert "Check needed" in shown
+
+
+def test_revise_prompt_is_lean_and_borderline_cases_do_not_cost_a_second_call(tmp_path):
+    repo, llm, decider = revise_setup(tmp_path)
+    refine_issue(ISSUE, repo, llm, decider, model="m")
+    revise_user = llm.calls[1][1]
+    assert "CONTEXT (repository files" not in revise_user  # no repo re-sent
+    assert "YOUR PREVIOUS ANSWER" in revise_user and "Title: Be able to change" in revise_user
+
+    # flagged (>= 0.5) but not clearly (< 0.7): shown, but no revise call
+    result, llm2, _ = refine(tmp_path / "borderline", jev_p=0.6)
+    assert len(llm2.calls) == 1 and not result.revised and result.invention_flagged
+
+
+def test_status_line_says_ready_or_waiting(tmp_path):
+    waiting, _, _ = refine(tmp_path)  # MODEL_REPLY has blocking questions
+    assert "**Status: waiting on you.**" in render_markdown(waiting, ISSUE)
+
+    reply = {**MODEL_REPLY, "questions": [{"question": "Rounding?", "default": "1 decimal"}]}
+    optional, _, _ = refine(tmp_path / "opt", reply=reply)
+    assert "**Status: ready.** 1 optional question(s)" in render_markdown(optional, ISSUE)
+
+    none, _, _ = refine(tmp_path / "none", reply={**MODEL_REPLY, "questions": []})
+    assert "**Status: ready.** No open questions" in render_markdown(none, ISSUE)
+
+
+def test_status_line_when_only_the_invention_check_needs_a_look(tmp_path):
+    result, _, _ = refine(tmp_path, reply={**MODEL_REPLY, "questions": []}, jev_p=0.6)
+    assert "**Status: check needed.**" in render_markdown(result, ISSUE)
