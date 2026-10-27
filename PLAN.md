@@ -137,6 +137,19 @@ context shared across issues in one shift; an "ask first" mode that sends only d
 file tree and returns just the questions, with the full code-aware refinement after the
 owner has answered; a cheaper model for tiny issues.
 
+**Ask-first and short comments (decided and implemented 2026-10-27):** round 1 can be a
+cheap questions-only pass (`refine --ask-first`): only the docs, the file tree and the other
+issue titles are sent, no source code, no defaults (it has not seen the code), no criteria.
+Measured on #3, #2 and #19: $0.014 per issue and about 5k tokens in, against $0.10 to $0.11
+and 35k tokens for the full first round, with similar key questions (scale vs regenerate,
+per recipe vs global, which page, rename scope). The cost of not reading code: it can ask
+what the code would have answered (for example whether the swap needs JavaScript). The
+full code-aware refinement runs after the owner answers. Comments are short by default
+(status and questions on top, everything else in one collapsed section; `--long` for the
+old layout). Blocking questions never carry a default. Idea from the owner: the long
+version generated on demand, via a comment command or a button (their work uses Rovo/Jira,
+so the trigger should be host-independent), and sections that can be expanded or removed.
+
 **Comment length (owner feedback, 2026-10-26):** the first posted comment was too long. Comments now
 show the request, the questions (short, with options and defaults) and the criteria on top;
 the reasons, code facts, decisions made, suggestions and checks are folded into collapsible
@@ -244,6 +257,23 @@ Design consequence, decided now so it is not retrofitted: every stage writes str
 events (shift id, issue, stage, status, timestamp, cost) to the run log. The dashboard only
 reads that log. Hypotheses: a small local web app that polls the log; a replay mode that
 plays back a recorded shift, so the public repo can demo it without a live run.
+
+## Cost model (estimate, 2026-10-27)
+
+Measured: Jev calls cost about $0.00003 each (roughly $0.001 per shift). Ask-first round
+$0.014. Full refinement round 1 $0.10 to $0.11, round 2 $0.13 (lean revise). Development
+spend on the Anthropic key so far is roughly $2.50 (sum of the printed per-run costs).
+
+Not measured (stages not built), assumptions at Sonnet 5.5 prices of $2 in and $10 out per
+million tokens, Opus at twice that: implementing a trivial issue $0.1 to $0.4, small
+$0.5 to $1.2, medium $1.5 to $3.6, large or high-risk on Opus $5 to $14 (large ones are split
+or asked about first). Cross-model review $0.05 to $0.4 per issue. Digest under $0.05. CI
+minutes are free on a public repo. Browser-agent manual testing, if used, $0.3 to $1.5 per
+issue.
+
+A 10-issue shift (6 unclear, 4 ready: 1 trivial, 2 small, 1 medium) is about $6 to $7, with a
+plausible range of $3 to $12, plus a retry allowance. The implementation figures are guesses
+until the first real run; the per-night and per-issue caps in the run contract bound the risk.
 
 ## Hypotheses to test (do not treat as fixed)
 

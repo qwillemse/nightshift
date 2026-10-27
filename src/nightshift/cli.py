@@ -14,7 +14,7 @@ from nightshift.evals import (
 )
 from nightshift.github import Gh, apply_suggestion
 from nightshift.llm import LLMError
-from nightshift.refine import Caution, refine_issue, render_markdown
+from nightshift.refine import Caution, ask_first_issue, refine_issue, render_markdown
 from nightshift.store import Store
 from nightshift.thread import marker
 from nightshift.triage import Issue, triage
@@ -90,30 +90,43 @@ def cmd_refine(args: argparse.Namespace) -> None:
         if thread is not None and not thread.needs_new_round:
             print(f"#{issue.number}: no new owner comments since the last refinement; skipped\n")
             continue
-        tri = triage(issue, jev)  # risk, size and confidence decide how cautious to be
-        caution = Caution(tri.labels["risk"], tri.labels["size"], tri.confidence.get("size"))
+        quick = args.ask_first and (thread is None or thread.round == 0)
         try:
-            result = refine_issue(
-                issue,
-                args.repo_path,
-                llm,
-                jev,
-                model=args.model,
-                other_issues=others,
-                caution=caution,
-                thread=thread,
-            )
+            if quick:
+                result = ask_first_issue(
+                    issue,
+                    args.repo_path,
+                    llm,
+                    model=args.model,
+                    other_issues=others,
+                    thread=thread,
+                )
+            else:
+                tri = triage(issue, jev)  # risk, size and confidence decide how cautious to be
+                caution = Caution(
+                    tri.labels["risk"], tri.labels["size"], tri.confidence.get("size")
+                )
+                result = refine_issue(
+                    issue,
+                    args.repo_path,
+                    llm,
+                    jev,
+                    model=args.model,
+                    other_issues=others,
+                    caution=caution,
+                    thread=thread,
+                )
         except LLMError as e:
             raise SystemExit(
                 f"{e}\nLog in by running `claude` and typing /login, "
                 "or set ANTHROPIC_API_KEY in .env."
             ) from None
-        text = render_markdown(result, issue)
+        text = render_markdown(result, issue, short=not args.long)
         if thread is not None and thread.excluded:
             text += f"\n- Ignored {thread.excluded} comment(s) from accounts that are not the owner or collaborators"
         print(text)
         if gh is not None and issue.number:
-            gh.comment(issue.number, f"{marker(result.thread_round)}\n{text}")
+            gh.comment(issue.number, f"{marker(result.thread_round, result.mode)}\n{text}")
             print(f"(posted as round {result.thread_round} on #{issue.number})")
         print("\n" + "-" * 60 + "\n")
 
@@ -159,6 +172,16 @@ def main() -> None:
     p.add_argument("--repo-path", required=True, help="local checkout of the target repo")
     p.add_argument("--model", default=DEFAULT_REFINE_MODEL)
     p.add_argument("--gh-repo", help="owner/name of the GitHub repo (for --issue and --post)")
+    p.add_argument(
+        "--ask-first",
+        action="store_true",
+        help="round 1 is a cheap questions-only pass (docs and file tree); later rounds read code",
+    )
+    p.add_argument(
+        "--long",
+        action="store_true",
+        help="show request, criteria and code facts on top instead of folding them away",
+    )
     p.add_argument(
         "--post", action="store_true", help="comment on the GitHub issue; never edits it"
     )

@@ -419,3 +419,93 @@ def test_status_line_says_ready_or_waiting(tmp_path):
 def test_status_line_when_only_the_invention_check_needs_a_look(tmp_path):
     result, _, _ = refine(tmp_path, reply={**MODEL_REPLY, "questions": []}, jev_p=0.6)
     assert "**Status: check needed.**" in render_markdown(result, ISSUE)
+
+
+ASK_REPLY = {
+    "understood_request": "Change the number of servings.",
+    "questions": [
+        {
+            "question": "Per recipe or global?",
+            "kind": "scope",
+            "blocking": True,
+            "options": ["a", "b"],
+        },
+        {"question": "Allowed range?", "kind": "acceptance", "default": "1 and up"},
+    ],
+    "duplicate_of": [7, 99],
+}
+
+
+def ask(tmp_path, reply=ASK_REPLY):
+    from nightshift.refine import ask_first_issue
+
+    repo = make_repo(tmp_path, FILES)
+    llm = FakeLLM(json.dumps(reply))
+    result = ask_first_issue(ISSUE, repo, llm, model="m", other_issues=[(7, "Add servings")])
+    return result, llm
+
+
+def test_ask_first_sends_docs_and_tree_but_no_source_code(tmp_path):
+    result, llm = ask(tmp_path)
+    system, user, _ = llm.calls[0]
+    assert len(llm.calls) == 1
+    assert "You have NOT seen the source code" in system
+    assert "## FILE CLAUDE.md" in user and "## FILE TREE" in user and "#7 Add servings" in user
+    assert "src/app/servings.py" in user  # in the tree
+    assert "def scale_servings" not in user  # but its content is not sent
+    assert "## FILE src/app/servings.py" not in user
+
+
+def test_ask_first_result_is_questions_only(tmp_path):
+    result, _ = ask(tmp_path)
+    assert result.mode == "ask" and result.thread_round == 1
+    assert [q.question for q in result.questions] == ["Per recipe or global?", "Allowed range?"]
+    assert result.criteria == [] and result.facts == []
+    assert result.duplicate_of == [7]  # 99 is not a listed issue number
+    md = render_markdown(result, ISSUE, short=True)
+    assert "Quick round" in md and "**Status: waiting on you.**" in md
+    assert "<summary>What I understood and checks</summary>" in md
+
+
+def test_marker_with_mode_still_counts_as_a_round():
+    from nightshift.thread import Comment, build_thread, marker
+
+    assert marker(1, "ask") == "<!-- nightshift:refinement round=1 mode=ask -->"
+    assert marker(2) == "<!-- nightshift:refinement round=2 -->"
+    thread = build_thread([Comment("me", "OWNER", marker(1, "ask") + "\nquick questions")])
+    assert thread.round == 1 and thread.entries[0].text == "quick questions"
+    assert thread.entries[0].round == 1
+
+
+def test_short_form_keeps_questions_on_top_and_folds_the_rest(tmp_path):
+    result, _, _ = refine(tmp_path)
+    short = render_markdown(result, ISSUE, short=True)
+    long = render_markdown(result, ISSUE)
+    shown = visible_part(short)
+    assert "Which max servings?" in shown and "**Status:" in shown
+    assert "User can change servings" not in shown  # criteria are inside the fold
+    assert "User can change servings" in short and "Recipe has a servings field" in short
+    assert "<summary>More: what I understood, what the code shows, checks</summary>" in short
+    assert len(visible_part(short)) < len(visible_part(long))
+    assert "Which max servings?" in long
+
+
+def test_short_form_never_hides_a_check_needed_alert(tmp_path):
+    result, _, _ = refine(tmp_path, jev_p=0.6)  # flagged but borderline
+    assert "Check needed" in visible_part(render_markdown(result, ISSUE, short=True))
+
+
+def test_ask_mode_never_gives_defaults_and_blocking_questions_never_do(tmp_path):
+    result, _ = ask(tmp_path)  # ASK_REPLY's second question carries a default: dropped in ask mode
+    assert all(q.default == "" for q in result.questions)
+    assert "proceeds with this unless you say otherwise" not in render_markdown(result, ISSUE)
+
+    reply = {
+        **MODEL_REPLY,
+        "questions": [
+            {"question": "A?", "blocking": True, "default": "guess"},
+            {"question": "B?", "blocking": False, "default": "fallback"},
+        ],
+    }
+    full, _, _ = refine(tmp_path / "full", reply=reply)
+    assert [(q.question, q.default) for q in full.questions] == [("A?", ""), ("B?", "fallback")]

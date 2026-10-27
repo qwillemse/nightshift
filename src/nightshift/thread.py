@@ -13,11 +13,12 @@ from dataclasses import dataclass, field
 
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 MARKER_PREFIX = "<!-- nightshift:refinement"
-_ROUND = re.compile(r"<!-- nightshift:refinement(?: round=(\d+))? -->")
+_ROUND = re.compile(r"<!-- nightshift:refinement(?: round=(\d+))?(?: mode=\w+)? -->")
 
 
-def marker(round_no: int) -> str:
-    return f"{MARKER_PREFIX} round={round_no} -->"
+def marker(round_no: int, mode: str = "full") -> str:
+    suffix = "" if mode == "full" else f" mode={mode}"
+    return f"{MARKER_PREFIX} round={round_no}{suffix} -->"
 
 
 @dataclass
